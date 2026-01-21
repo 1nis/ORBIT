@@ -17,6 +17,8 @@ load_dotenv()
 app = Flask(__name__)
 client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
+# Project management
+PROJECTS_ROOT = r"C:\Users\elpip\Desktop\Projets"
 WORKSPACE_DIR = os.getcwd()
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -794,6 +796,82 @@ def github_status():
     return jsonify({
         "authenticated": result.returncode == 0,
         "output": result.stdout.strip() or result.stderr.strip()
+    })
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PROJECT MANAGEMENT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.route('/projects')
+def list_projects():
+    """List all projects in PROJECTS_ROOT."""
+    projects = []
+    if os.path.exists(PROJECTS_ROOT):
+        for item in os.listdir(PROJECTS_ROOT):
+            path = os.path.join(PROJECTS_ROOT, item)
+            if os.path.isdir(path) and not item.startswith('.'):
+                has_git = os.path.exists(os.path.join(path, '.git'))
+                projects.append({
+                    "name": item,
+                    "path": path,
+                    "has_git": has_git,
+                    "is_current": path == WORKSPACE_DIR
+                })
+    return jsonify({"projects": projects, "current": os.path.basename(WORKSPACE_DIR)})
+
+@app.route('/projects/create', methods=['POST'])
+def create_project():
+    """Create a new project folder."""
+    global WORKSPACE_DIR
+    data = request.json or {}
+    name = data.get('name', '').strip()
+    
+    if not name:
+        return jsonify({"success": False, "error": "Nom de projet requis"})
+    
+    # Sanitize name
+    name = "".join(c for c in name if c.isalnum() or c in (' ', '-', '_')).strip()
+    name = name.replace(' ', '_')
+    
+    if not name:
+        return jsonify({"success": False, "error": "Nom de projet invalide"})
+    
+    project_path = os.path.join(PROJECTS_ROOT, name)
+    
+    if os.path.exists(project_path):
+        return jsonify({"success": False, "error": f"Le projet '{name}' existe deja"})
+    
+    try:
+        os.makedirs(project_path)
+        subprocess.run(["powershell", "-Command", "git init"], cwd=project_path, capture_output=True)
+        WORKSPACE_DIR = project_path
+        orchestrator.reset()
+        return jsonify({"success": True, "message": f"Projet '{name}' cree", "path": project_path})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/projects/select', methods=['POST'])
+def select_project():
+    """Select an existing project."""
+    global WORKSPACE_DIR
+    data = request.json or {}
+    name = data.get('name', '')
+    
+    project_path = os.path.join(PROJECTS_ROOT, name)
+    
+    if not os.path.exists(project_path):
+        return jsonify({"success": False, "error": f"Projet '{name}' introuvable"})
+    
+    WORKSPACE_DIR = project_path
+    orchestrator.reset()
+    return jsonify({"success": True, "message": f"Projet '{name}' selectionne", "path": project_path})
+
+@app.route('/projects/current')
+def current_project():
+    """Get current project info."""
+    return jsonify({
+        "name": os.path.basename(WORKSPACE_DIR),
+        "path": WORKSPACE_DIR
     })
 
 # ═══════════════════════════════════════════════════════════════════════════════
