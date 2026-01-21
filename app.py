@@ -1,5 +1,5 @@
 """
-ANTIGRAVITY STUDIO v3 - Multi-Agent Orchestrator
+ORBIT - Multi-Agent Development Studio
 Architecture: BOSS (Planning) → CODER (Execution) → REVIEWER (Validation)
 """
 
@@ -25,16 +25,15 @@ WORKSPACE_DIR = os.getcwd()
 
 CONFIG = {
     "models": {
-        "boss": "claude-sonnet-4-5-20250929",      # Orchestrator - can upgrade to opus
-        "coder": "claude-sonnet-4-5-20250929",     # Fast coder
-        "reviewer": "claude-sonnet-4-5-20250929"   # Reviewer
+        "boss": "claude-sonnet-4-5-20250929",
+        "coder": "claude-sonnet-4-5-20250929",
+        "reviewer": "claude-sonnet-4-5-20250929"
     },
-    "autopilot": True,   # Auto-confirm without user input
+    "autopilot": True,
     "max_iterations": 15,
     "max_retries": 3
 }
 
-# Usage tracking
 USAGE_STATS = {
     "total_input_tokens": 0,
     "total_output_tokens": 0,
@@ -59,7 +58,7 @@ TOOLS = [
     },
     {
         "name": "write_file",
-        "description": "Crée ou modifie un fichier. Crée les dossiers parents si nécessaire.",
+        "description": "Cree ou modifie un fichier. Cree les dossiers parents si necessaire.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -71,7 +70,7 @@ TOOLS = [
     },
     {
         "name": "run_command",
-        "description": "Exécute une commande PowerShell. Retourne stdout/stderr.",
+        "description": "Execute une commande PowerShell. Retourne stdout/stderr.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -82,7 +81,7 @@ TOOLS = [
     },
     {
         "name": "list_files",
-        "description": "Liste les fichiers d'un répertoire.",
+        "description": "Liste les fichiers d'un repertoire.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -113,7 +112,7 @@ TOOLS = [
     },
     {
         "name": "git_diff",
-        "description": "Affiche les différences des fichiers modifiés.",
+        "description": "Affiche les differences des fichiers modifies.",
         "input_schema": {
             "type": "object",
             "properties": {},
@@ -132,7 +131,7 @@ def execute_tool(name: str, args: dict) -> dict:
         if name == "read_file":
             path = os.path.join(WORKSPACE_DIR, args["filename"])
             if not os.path.exists(path):
-                return {"success": False, "error": f"Fichier non trouvé: {args['filename']}"}
+                return {"success": False, "error": f"Fichier non trouve: {args['filename']}"}
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
             return {"success": True, "content": content[:5000], "size": len(content)}
@@ -204,7 +203,7 @@ def execute_tool(name: str, args: dict) -> dict:
 # AGENT SYSTEM PROMPTS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-BOSS_PROMPT = """Tu es le BOSS de l'equipe ANTIGRAVITY STUDIO.
+BOSS_PROMPT = """Tu es le BOSS de l'equipe de developpement.
 
 ## TON ROLE
 - Analyser les demandes utilisateur
@@ -235,39 +234,35 @@ Instructions detaillees pour le CODER
 - Sois concis mais precis
 - Ne fais PAS le code toi-meme, delegue au CODER
 - Utilise git_commit uniquement apres validation du REVIEWER
-- Si une erreur persiste apres 3 tentatives, arrete et explique"""
+- Si une erreur persiste apres 3 tentatives, arrete et explique
+- NE JAMAIS inclure de nom d'auteur, signature ou credit dans le code"""
 
-CODER_PROMPT = """Tu es le CODER de l'equipe ANTIGRAVITY STUDIO sur Windows.
+CODER_PROMPT = """Tu es le CODER de l'equipe de developpement sur Windows.
 
 ## TON ROLE
-- Ecrire du code propre et fonctionnel
-- Executer les commandes systeme
-- Creer/modifier les fichiers selon les instructions du BOSS
+- Ecrire du code propre, modulaire et maintenable
+- Separer les responsabilites (HTML structure, CSS style, JS logic)
 
 ## TES OUTILS
-- write_file: Creer/modifier des fichiers
-- read_file: Lire des fichiers existants
-- run_command: Executer des commandes PowerShell
-- list_files: Lister le contenu d'un dossier
+- write_file, read_file, run_command, list_files
 
 ## REGLES STRICTES
-1. HTML/CSS/JS: Mets TOUT dans un seul fichier HTML (CSS et JS inline)
-2. PowerShell: Utilise 'dir' au lieu de 'ls', 'type' au lieu de 'cat'
+1. SEPARATION DES FICHIERS : Ne fais JAMAIS de CSS/JS inline geant.
+   - Cree `index.html` pour la structure
+   - Cree `style.css` pour le design
+   - Cree `script.js` pour la logique
+2. PowerShell : Utilise 'dir' au lieu de 'ls', 'type' au lieu de 'cat'
 3. Erreurs: Si une commande echoue, analyse l'erreur et corrige SANS demander
-4. Fichiers: Cree les fichiers complets, pas de placeholders
-5. Design: Creer des interfaces MODERNES et BELLES (dark mode, animations)
+4. Design : Utilise des classes modernes, du dark mode par defaut.
+5. Imports : N'oublie pas de lier les fichiers dans le HTML (<link>, <script src...>)
+6. ANONYMAT : NE JAMAIS inclure de nom d'auteur, signature, credit ou commentaire d'attribution
 
 ## FORMAT DE REPONSE
-[ACTION]
-Ce que tu vas faire
+[ACTION] Explication...
+[EXECUTION] (Outils...)
+[RESULTAT] Resume..."""
 
-[EXECUTION]
-(utilise les outils)
-
-[RESULTAT]
-Resume de ce qui a ete fait"""
-
-REVIEWER_PROMPT = """Tu es le REVIEWER de l'equipe ANTIGRAVITY STUDIO.
+REVIEWER_PROMPT = """Tu es le REVIEWER de l'equipe de developpement.
 
 ## TON ROLE
 - Verifier le travail du CODER
@@ -366,7 +361,6 @@ class AgentOrchestrator:
                     "id": block.id
                 })
                 
-                # Track created files
                 if block.name == "write_file" and result.get("success"):
                     filename = block.input.get("filename", "")
                     if filename not in self.created_files:
@@ -386,17 +380,14 @@ class AgentOrchestrator:
             response = self.call_agent(agent, conversation, system_prompt)
             tool_results = self.process_tool_calls(response, conversation)
             
-            # Yield agent output
             for block in response.content:
                 if block.type == "text":
                     yield {"type": "agent_text", "agent": agent, "content": block.text}
             
-            # Yield tool results
             for tr in tool_results:
                 yield {"type": "tool_result", "agent": agent, "tool": tr["tool"], 
                        "success": tr["result"].get("success", False), "result": tr["result"]}
             
-            # If tool calls were made, send results back
             if tool_results:
                 tool_results_content = []
                 for tr in tool_results:
@@ -407,7 +398,6 @@ class AgentOrchestrator:
                     })
                 conversation.append({"role": "user", "content": tool_results_content})
             else:
-                # No tool calls = agent is done
                 break
         
         yield {"type": "agent_complete", "agent": agent}
@@ -415,9 +405,6 @@ class AgentOrchestrator:
     def orchestrate(self, user_message: str):
         """Main orchestration flow: BOSS -> CODER -> REVIEWER -> BOSS (commit)"""
         
-        # ═══════════════════════════════════════════════════════
-        # PHASE 1: BOSS - Planning
-        # ═══════════════════════════════════════════════════════
         yield {"type": "phase", "phase": "BOSS", "status": "Planning"}
         
         self.conversation_boss.append({"role": "user", "content": user_message})
@@ -432,14 +419,10 @@ class AgentOrchestrator:
         
         self.conversation_boss.append({"role": "assistant", "content": response.content})
         
-        # Extract CODER instructions
         coder_instructions = boss_text
         if "[INSTRUCTION_CODER]" in boss_text:
             coder_instructions = boss_text.split("[INSTRUCTION_CODER]")[-1].strip()
         
-        # ═══════════════════════════════════════════════════════
-        # PHASE 2: CODER - Execution
-        # ═══════════════════════════════════════════════════════
         yield {"type": "phase", "phase": "CODER", "status": "Coding"}
         
         self.conversation_coder = [{"role": "user", "content": f"Instructions du BOSS:\n{coder_instructions}"}]
@@ -447,9 +430,6 @@ class AgentOrchestrator:
         for event in self.run_agent_loop("coder", coder_instructions, CODER_PROMPT, self.conversation_coder, max_turns=8):
             yield event
         
-        # ═══════════════════════════════════════════════════════
-        # PHASE 3: REVIEWER - Validation
-        # ═══════════════════════════════════════════════════════
         yield {"type": "phase", "phase": "REVIEWER", "status": "Reviewing"}
         
         files_to_review = ", ".join(self.created_files) if self.created_files else "les fichiers modifies"
@@ -463,9 +443,6 @@ class AgentOrchestrator:
             if event.get("type") == "agent_text" and "CORRECTIONS_REQUISES" in event.get("content", ""):
                 reviewer_verdict = "CORRECTIONS_REQUISES"
         
-        # ═══════════════════════════════════════════════════════
-        # PHASE 4: BOSS - Commit (if approved)
-        # ═══════════════════════════════════════════════════════
         if reviewer_verdict == "APPROUVE" or CONFIG["autopilot"]:
             yield {"type": "phase", "phase": "GIT", "status": "Committing"}
             
@@ -475,9 +452,6 @@ class AgentOrchestrator:
             yield {"type": "tool_result", "agent": "boss", "tool": "git_commit", 
                    "success": result.get("success", False), "result": result}
         
-        # ═══════════════════════════════════════════════════════
-        # COMPLETE
-        # ═══════════════════════════════════════════════════════
         html_files = [f for f in self.created_files if f.endswith(('.html', '.htm'))]
         yield {
             "type": "complete",
@@ -487,6 +461,87 @@ class AgentOrchestrator:
 
 # Global orchestrator instance
 orchestrator = AgentOrchestrator()
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# GIT HELPER FUNCTIONS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def get_git_status():
+    """Get current git status."""
+    result = subprocess.run(
+        ["powershell", "-Command", "git status --porcelain"],
+        capture_output=True, text=True, cwd=WORKSPACE_DIR
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+def get_git_diff_summary():
+    """Get summary of changes for auto-commit message."""
+    result = subprocess.run(
+        ["powershell", "-Command", "git diff --stat HEAD"],
+        capture_output=True, text=True, cwd=WORKSPACE_DIR
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+def generate_commit_message():
+    """Generate an automatic commit message based on changes."""
+    status = get_git_status()
+    if not status:
+        return None
+    
+    lines = status.split('\n')
+    added = [l[3:] for l in lines if l.startswith('A ') or l.startswith('?? ')]
+    modified = [l[3:] for l in lines if l.startswith('M ') or l.startswith(' M')]
+    deleted = [l[3:] for l in lines if l.startswith('D ')]
+    
+    parts = []
+    if added:
+        parts.append(f"add {', '.join(added[:3])}" + (" ..." if len(added) > 3 else ""))
+    if modified:
+        parts.append(f"update {', '.join(modified[:3])}" + (" ..." if len(modified) > 3 else ""))
+    if deleted:
+        parts.append(f"remove {', '.join(deleted[:3])}" + (" ..." if len(deleted) > 3 else ""))
+    
+    if not parts:
+        return "chore: minor changes"
+    
+    return "; ".join(parts)[:72]
+
+def generate_readme_content():
+    """Generate README content based on project files."""
+    files = []
+    for item in os.listdir(WORKSPACE_DIR):
+        if not item.startswith('.') and item not in ['__pycache__', 'venv', 'node_modules', 'templates']:
+            files.append(item)
+    
+    # Determine project type
+    has_html = any(f.endswith('.html') for f in files)
+    has_py = any(f.endswith('.py') for f in files)
+    has_js = any(f.endswith('.js') for f in files)
+    
+    project_name = os.path.basename(WORKSPACE_DIR)
+    
+    readme = f"""# {project_name}
+
+## Description
+
+Project generated with Orbit Development Studio.
+
+## Files
+
+"""
+    for f in sorted(files):
+        readme += f"- `{f}`\n"
+    
+    readme += "\n## Getting Started\n\n"
+    
+    if has_html:
+        readme += "Open `index.html` in your browser to view the project.\n\n"
+    if has_py:
+        readme += "```bash\npython app.py\n```\n\n"
+    
+    readme += "## License\n\nMIT\n"
+    
+    return readme
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # FLASK ROUTES
@@ -544,12 +599,210 @@ def list_workspace_files():
     return jsonify(files)
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# GIT API ROUTES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.route('/git/status')
+def git_status():
+    """Get git status."""
+    result = subprocess.run(
+        ["powershell", "-Command", "git status --short"],
+        capture_output=True, text=True, cwd=WORKSPACE_DIR
+    )
+    return jsonify({
+        "success": result.returncode == 0,
+        "status": result.stdout.strip() if result.stdout else "Clean",
+        "error": result.stderr.strip() if result.stderr else None
+    })
+
+@app.route('/git/diff')
+def git_diff():
+    """Get git diff."""
+    result = subprocess.run(
+        ["powershell", "-Command", "git diff --stat"],
+        capture_output=True, text=True, cwd=WORKSPACE_DIR
+    )
+    return jsonify({
+        "success": True,
+        "diff": result.stdout.strip() if result.stdout else "Aucun changement"
+    })
+
+@app.route('/git/commit', methods=['POST'])
+def git_commit():
+    """Commit with auto or manual message."""
+    data = request.json or {}
+    message = data.get('message', '').strip()
+    
+    # Auto-generate message if not provided
+    if not message:
+        message = generate_commit_message()
+        if not message:
+            return jsonify({"success": False, "error": "Rien a commiter"})
+    
+    # Stage all changes
+    subprocess.run(["powershell", "-Command", "git add -A"], cwd=WORKSPACE_DIR, capture_output=True)
+    
+    # Commit
+    result = subprocess.run(
+        ["powershell", "-Command", f'git commit -m "{message}"'],
+        capture_output=True, text=True, cwd=WORKSPACE_DIR
+    )
+    
+    if result.returncode == 0:
+        return jsonify({"success": True, "message": message})
+    elif "nothing to commit" in (result.stdout + result.stderr).lower():
+        return jsonify({"success": True, "message": "Rien a commiter"})
+    else:
+        return jsonify({"success": False, "error": result.stderr or result.stdout})
+
+@app.route('/git/push', methods=['POST'])
+def git_push():
+    """Push to remote."""
+    result = subprocess.run(
+        ["powershell", "-Command", "git push"],
+        capture_output=True, text=True, cwd=WORKSPACE_DIR
+    )
+    return jsonify({
+        "success": result.returncode == 0,
+        "output": result.stdout.strip() or result.stderr.strip()
+    })
+
+@app.route('/git/pull', methods=['POST'])
+def git_pull():
+    """Pull from remote."""
+    result = subprocess.run(
+        ["powershell", "-Command", "git pull"],
+        capture_output=True, text=True, cwd=WORKSPACE_DIR
+    )
+    return jsonify({
+        "success": result.returncode == 0,
+        "output": result.stdout.strip() or result.stderr.strip()
+    })
+
+@app.route('/git/log')
+def git_log():
+    """Get recent commits."""
+    result = subprocess.run(
+        ["powershell", "-Command", "git log --oneline -10"],
+        capture_output=True, text=True, cwd=WORKSPACE_DIR
+    )
+    return jsonify({
+        "success": result.returncode == 0,
+        "log": result.stdout.strip() if result.stdout else "Aucun commit"
+    })
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# README GENERATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.route('/readme/generate', methods=['POST'])
+def readme_generate():
+    """Generate README.md for the project."""
+    content = generate_readme_content()
+    path = os.path.join(WORKSPACE_DIR, "README.md")
+    
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    
+    return jsonify({
+        "success": True,
+        "message": "README.md genere",
+        "content": content
+    })
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# GITHUB REPO CREATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.route('/github/create', methods=['POST'])
+def github_create():
+    """Create a GitHub repo for the current project."""
+    data = request.json or {}
+    repo_name = data.get('name', os.path.basename(WORKSPACE_DIR))
+    private = data.get('private', True)
+    push_now = data.get('push', True)
+    
+    visibility = "--private" if private else "--public"
+    
+    # Check if repo already has a remote
+    check_remote = subprocess.run(
+        ["powershell", "-Command", "git remote get-url origin"],
+        capture_output=True, text=True, cwd=WORKSPACE_DIR
+    )
+    
+    if check_remote.returncode == 0 and check_remote.stdout.strip():
+        return jsonify({
+            "success": False,
+            "error": f"Remote origin already exists: {check_remote.stdout.strip()}"
+        })
+    
+    # Initialize git if needed
+    subprocess.run(
+        ["powershell", "-Command", "git init"],
+        capture_output=True, cwd=WORKSPACE_DIR
+    )
+    
+    # Create GitHub repo using gh CLI
+    result = subprocess.run(
+        ["powershell", "-Command", f'gh repo create {repo_name} {visibility} --source=. --remote=origin'],
+        capture_output=True, text=True, cwd=WORKSPACE_DIR
+    )
+    
+    if result.returncode != 0:
+        return jsonify({
+            "success": False,
+            "error": result.stderr.strip() or result.stdout.strip()
+        })
+    
+    repo_url = result.stdout.strip()
+    
+    # Push if requested
+    if push_now:
+        # Commit all if needed
+        subprocess.run(["powershell", "-Command", "git add -A"], cwd=WORKSPACE_DIR, capture_output=True)
+        subprocess.run(
+            ["powershell", "-Command", 'git commit -m "Initial commit" --allow-empty'],
+            cwd=WORKSPACE_DIR, capture_output=True
+        )
+        
+        # Push
+        push_result = subprocess.run(
+            ["powershell", "-Command", "git push -u origin main"],
+            capture_output=True, text=True, cwd=WORKSPACE_DIR
+        )
+        
+        if push_result.returncode != 0:
+            # Try master branch
+            subprocess.run(
+                ["powershell", "-Command", "git push -u origin master"],
+                capture_output=True, cwd=WORKSPACE_DIR
+            )
+    
+    return jsonify({
+        "success": True,
+        "message": f"Repo created: {repo_name}",
+        "url": repo_url
+    })
+
+@app.route('/github/status')
+def github_status():
+    """Check if gh CLI is authenticated."""
+    result = subprocess.run(
+        ["powershell", "-Command", "gh auth status"],
+        capture_output=True, text=True, cwd=WORKSPACE_DIR
+    )
+    return jsonify({
+        "authenticated": result.returncode == 0,
+        "output": result.stdout.strip() or result.stderr.strip()
+    })
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == '__main__':
     print("\n" + "=" * 60)
-    print("  ANTIGRAVITY STUDIO v3 - Multi-Agent System")
+    print("  ORBIT - Development Studio")
     print("  -> http://127.0.0.1:5000")
     print("  Agents: BOSS | CODER | REVIEWER")
     print("=" * 60 + "\n")

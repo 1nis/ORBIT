@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ANTIGRAVITY STUDIO v3</title>
+    <title>ORBIT - Development Studio</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
@@ -17,7 +17,8 @@
                         zinc: { 950: '#09090b', 900: '#18181b', 800: '#27272a', 700: '#3f3f46', 600: '#52525b', 500: '#71717a', 400: '#a1a1aa' },
                         boss: { DEFAULT: '#8b5cf6', light: '#a78bfa', dark: '#7c3aed' },
                         coder: { DEFAULT: '#f59e0b', light: '#fbbf24', dark: '#d97706' },
-                        reviewer: { DEFAULT: '#10b981', light: '#34d399', dark: '#059669' }
+                        reviewer: { DEFAULT: '#10b981', light: '#34d399', dark: '#059669' },
+                        orbit: { DEFAULT: '#3b82f6', light: '#60a5fa', dark: '#2563eb' }
                     }
                 }
             }
@@ -51,7 +52,6 @@
             border-radius: 3px;
         }
 
-        /* Agent badges */
         .badge-boss {
             background: rgba(139, 92, 246, 0.15);
             color: #a78bfa;
@@ -76,7 +76,6 @@
             border: 1px solid rgba(239, 68, 68, 0.3);
         }
 
-        /* Tab styles */
         .tab {
             transition: all 0.2s;
             border-bottom: 2px solid transparent;
@@ -97,7 +96,6 @@
             color: #34d399;
         }
 
-        /* Terminal styles */
         .terminal {
             background: #0c0c0e;
             border: 1px solid #1f1f23;
@@ -134,7 +132,6 @@
             border-color: #10b981;
         }
 
-        /* Toggle switch */
         .toggle {
             width: 36px;
             height: 20px;
@@ -165,7 +162,6 @@
             left: 18px;
         }
 
-        /* Animations */
         @keyframes pulse {
 
             0%,
@@ -198,13 +194,61 @@
             animation: pulse 2s infinite;
         }
 
-        /* Phase indicator */
         .phase-indicator {
             transition: all 0.3s;
         }
 
         .phase-indicator.active {
             box-shadow: 0 0 20px currentColor;
+        }
+
+        /* Git Modal */
+        .modal-overlay {
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(4px);
+        }
+
+        .modal-content {
+            background: #18181b;
+            border: 1px solid #27272a;
+            border-radius: 12px;
+        }
+
+        .git-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            background: #27272a;
+            border: 1px solid #3f3f46;
+            border-radius: 8px;
+            color: #fafafa;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .git-btn:hover {
+            background: #3f3f46;
+            border-color: #52525b;
+        }
+
+        .git-btn.primary {
+            background: #3b82f6;
+            border-color: #2563eb;
+        }
+
+        .git-btn.primary:hover {
+            background: #2563eb;
+        }
+
+        .git-btn.success {
+            background: #10b981;
+            border-color: #059669;
+        }
+
+        .git-btn.success:hover {
+            background: #059669;
         }
     </style>
 </head>
@@ -214,11 +258,10 @@
     <!-- Header -->
     <header class="h-11 border-b border-zinc-800/50 flex items-center justify-between px-4 bg-zinc-950 shrink-0">
         <div class="flex items-center gap-3">
-            <div class="w-2 h-2 rounded-full bg-white" style="box-shadow: 0 0 10px rgba(255,255,255,0.5)"></div>
-            <span class="font-semibold text-sm">ANTIGRAVITY</span>
+            <div class="w-2 h-2 rounded-full bg-blue-500" style="box-shadow: 0 0 10px rgba(59,130,246,0.5)"></div>
+            <span class="font-semibold text-sm">ORBIT</span>
             <span
-                class="text-[10px] text-zinc-500 px-2 py-0.5 border border-zinc-800 rounded bg-zinc-900/50 font-medium">v3
-                MULTI-AGENT</span>
+                class="text-[10px] text-zinc-500 px-2 py-0.5 border border-zinc-800 rounded bg-zinc-900/50 font-medium">STUDIO</span>
         </div>
 
         <!-- Control Panel -->
@@ -244,6 +287,18 @@
                 <span>TOKENS:</span>
                 <span id="token-count" class="text-zinc-400">0</span>
             </div>
+
+            <!-- Git Button -->
+            <button onclick="openGitModal()"
+                class="flex items-center gap-1 text-[10px] text-orange-400 border border-orange-700 hover:border-orange-500 bg-zinc-900 px-2 py-1 rounded hover:text-orange-300 transition-all">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <line x1="12" y1="3" x2="12" y2="9"></line>
+                    <line x1="12" y1="15" x2="12" y2="21"></line>
+                </svg>
+                GIT
+            </button>
 
             <!-- Reset -->
             <button onclick="resetAll()"
@@ -302,7 +357,7 @@
             <!-- Terminal Output -->
             <div id="terminal" class="flex-1 overflow-y-auto p-3 space-y-2 text-[12px] mono">
                 <div class="terminal-line py-1.5 text-zinc-500 fade-in">
-                    Systeme multi-agents pret. BOSS | CODER | REVIEWER
+                    ORBIT ready. Agents: BOSS | CODER | REVIEWER
                 </div>
             </div>
 
@@ -393,6 +448,137 @@
                     <span class="w-2 h-2 bg-reviewer rounded-full pulse" style="animation-delay:0.4s"></span>
                 </div>
                 <span id="loading-text" class="text-xs text-zinc-400 mono">Processing...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Git Modal -->
+    <div id="git-modal" class="fixed inset-0 modal-overlay hidden items-center justify-center z-50">
+        <div class="modal-content w-[480px] max-h-[80vh] overflow-hidden flex flex-col">
+            <!-- Modal Header -->
+            <div class="flex items-center justify-between p-4 border-b border-zinc-800">
+                <div class="flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" class="text-orange-400">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <line x1="12" y1="3" x2="12" y2="9"></line>
+                        <line x1="12" y1="15" x2="12" y2="21"></line>
+                    </svg>
+                    <span class="font-semibold">Git Control</span>
+                </div>
+                <button onclick="closeGitModal()" class="text-zinc-500 hover:text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Modal Body -->
+            <div class="p-4 space-y-4 overflow-y-auto flex-1">
+                <!-- Status -->
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs text-zinc-500 mono">STATUS</span>
+                        <button onclick="refreshGitStatus()"
+                            class="text-xs text-blue-400 hover:text-blue-300">Refresh</button>
+                    </div>
+                    <div id="git-status"
+                        class="bg-black/50 rounded-lg p-3 text-xs mono text-zinc-400 max-h-32 overflow-y-auto">
+                        Loading...
+                    </div>
+                </div>
+
+                <!-- Commit Section -->
+                <div class="space-y-2">
+                    <span class="text-xs text-zinc-500 mono">COMMIT</span>
+                    <div class="flex gap-2">
+                        <input type="text" id="commit-message" placeholder="Message (laisser vide pour auto)"
+                            class="flex-1 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-zinc-600">
+                        <button onclick="doCommit()" class="git-btn primary">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                                fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                            Commit
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="grid grid-cols-2 gap-2">
+                    <button onclick="doPush()" class="git-btn success">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2">
+                            <line x1="12" y1="19" x2="12" y2="5"></line>
+                            <polyline points="5 12 12 5 19 12"></polyline>
+                        </svg>
+                        Push
+                    </button>
+                    <button onclick="doPull()" class="git-btn">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <polyline points="19 12 12 19 5 12"></polyline>
+                        </svg>
+                        Pull
+                    </button>
+                    <button onclick="showDiff()" class="git-btn">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2">
+                            <path d="M12 3v18M3 12h18"></path>
+                        </svg>
+                        Diff
+                    </button>
+                    <button onclick="generateReadme()" class="git-btn">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                        </svg>
+                        README
+                    </button>
+                </div>
+
+                <!-- Log -->
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs text-zinc-500 mono">RECENT COMMITS</span>
+                        <button onclick="refreshGitLog()"
+                            class="text-xs text-blue-400 hover:text-blue-300">Refresh</button>
+                    </div>
+                    <div id="git-log"
+                        class="bg-black/50 rounded-lg p-3 text-xs mono text-zinc-400 max-h-32 overflow-y-auto">
+                        Loading...
+                    </div>
+                </div>
+
+                <!-- Create Repo Section -->
+                <div class="space-y-2 pt-2 border-t border-zinc-800">
+                    <span class="text-xs text-zinc-500 mono">CREATE GITHUB REPO</span>
+                    <div class="flex gap-2">
+                        <input type="text" id="repo-name" placeholder="Nom du repo (auto si vide)"
+                            class="flex-1 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-zinc-600">
+                        <label class="flex items-center gap-1 text-xs text-zinc-500">
+                            <input type="checkbox" id="repo-private" checked class="rounded"> Private
+                        </label>
+                    </div>
+                    <button onclick="createRepo()" class="git-btn w-full justify-center"
+                        style="background: #6e40c9; border-color: #8b5cf6;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2">
+                            <path
+                                d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22">
+                            </path>
+                        </svg>
+                        Creer Repo GitHub
+                    </button>
+                </div>
+            </div>
+
+            <!-- Modal Footer -->
+            <div id="git-result" class="p-3 border-t border-zinc-800 text-xs mono text-zinc-500 hidden">
             </div>
         </div>
     </div>
@@ -551,10 +737,8 @@
             sendBtn.disabled = true;
             userInput.value = '';
 
-            // Show user message
             addTerminalLine('', `<span class="text-white bg-zinc-800 px-2 py-1 rounded">${text}</span>`, '');
 
-            // Show loading
             loadingOverlay.classList.remove('hidden');
             loadingOverlay.style.display = 'flex';
 
@@ -614,7 +798,6 @@
                     break;
 
                 case 'agent_complete':
-                    // Agent finished
                     break;
 
                 case 'complete':
@@ -644,6 +827,163 @@
         }
 
         // ═══════════════════════════════════════════════════════════════════
+        // GIT MODAL
+        // ═══════════════════════════════════════════════════════════════════
+
+        function openGitModal() {
+            document.getElementById('git-modal').classList.remove('hidden');
+            document.getElementById('git-modal').style.display = 'flex';
+            refreshGitStatus();
+            refreshGitLog();
+        }
+
+        function closeGitModal() {
+            document.getElementById('git-modal').classList.add('hidden');
+            document.getElementById('git-modal').style.display = 'none';
+        }
+
+        async function refreshGitStatus() {
+            const el = document.getElementById('git-status');
+            el.textContent = 'Loading...';
+            try {
+                const res = await fetch('/git/status');
+                const data = await res.json();
+                el.textContent = data.status || 'Clean - nothing to commit';
+            } catch (e) {
+                el.textContent = 'Error loading status';
+            }
+        }
+
+        async function refreshGitLog() {
+            const el = document.getElementById('git-log');
+            el.textContent = 'Loading...';
+            try {
+                const res = await fetch('/git/log');
+                const data = await res.json();
+                el.textContent = data.log || 'No commits yet';
+            } catch (e) {
+                el.textContent = 'Error loading log';
+            }
+        }
+
+        function showGitResult(msg, success = true) {
+            const el = document.getElementById('git-result');
+            el.classList.remove('hidden');
+            el.className = `p-3 border-t border-zinc-800 text-xs mono ${success ? 'text-green-400' : 'text-red-400'}`;
+            el.textContent = msg;
+            setTimeout(() => el.classList.add('hidden'), 3000);
+        }
+
+        async function doCommit() {
+            const msg = document.getElementById('commit-message').value.trim();
+            try {
+                const res = await fetch('/git/commit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: msg })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showGitResult(`✓ Commit: ${data.message}`, true);
+                    document.getElementById('commit-message').value = '';
+                    addTerminalLine('git', `Commit: ${data.message}`, 'success');
+                } else {
+                    showGitResult(`✗ ${data.error}`, false);
+                }
+                refreshGitStatus();
+                refreshGitLog();
+            } catch (e) {
+                showGitResult('Erreur de connexion', false);
+            }
+        }
+
+        async function doPush() {
+            try {
+                const res = await fetch('/git/push', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    showGitResult('✓ Push reussi', true);
+                    addTerminalLine('git', 'Push vers origin', 'success');
+                } else {
+                    showGitResult(`✗ ${data.output}`, false);
+                }
+            } catch (e) {
+                showGitResult('Erreur de connexion', false);
+            }
+        }
+
+        async function doPull() {
+            try {
+                const res = await fetch('/git/pull', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    showGitResult('✓ Pull reussi', true);
+                    addTerminalLine('git', 'Pull depuis origin', 'success');
+                } else {
+                    showGitResult(`✗ ${data.output}`, false);
+                }
+            } catch (e) {
+                showGitResult('Erreur de connexion', false);
+            }
+        }
+
+        async function showDiff() {
+            const el = document.getElementById('git-status');
+            try {
+                const res = await fetch('/git/diff');
+                const data = await res.json();
+                el.textContent = data.diff || 'Aucun changement';
+            } catch (e) {
+                el.textContent = 'Erreur';
+            }
+        }
+
+        async function generateReadme() {
+            try {
+                const res = await fetch('/readme/generate', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    showGitResult('✓ README.md genere', true);
+                    addTerminalLine('git', 'README.md genere', 'success');
+                    refreshGitStatus();
+                } else {
+                    showGitResult('✗ Erreur', false);
+                }
+            } catch (e) {
+                showGitResult('Erreur de connexion', false);
+            }
+        }
+
+        async function createRepo() {
+            const name = document.getElementById('repo-name').value.trim();
+            const isPrivate = document.getElementById('repo-private').checked;
+
+            showGitResult('Creation du repo...', true);
+
+            try {
+                const res = await fetch('/github/create', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: name || undefined, private: isPrivate, push: true })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    showGitResult(`✓ ${data.message}`, true);
+                    addTerminalLine('git', `Repo GitHub cree: ${data.url || data.message}`, 'success');
+                    document.getElementById('repo-name').value = '';
+                    refreshGitStatus();
+                    refreshGitLog();
+                } else {
+                    showGitResult(`✗ ${data.error}`, false);
+                    addTerminalLine('git', `Erreur: ${data.error}`, 'error');
+                }
+            } catch (e) {
+                showGitResult('Erreur de connexion', false);
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
         // UTILS
         // ═══════════════════════════════════════════════════════════════════
 
@@ -662,13 +1002,18 @@
         async function resetAll() {
             if (!confirm('Reinitialiser?')) return;
             await fetch('/reset', { method: 'POST' });
-            terminal.innerHTML = '<div class="terminal-line py-1.5 text-zinc-500 fade-in">Systeme reinitialise.</div>';
+            terminal.innerHTML = '<div class="terminal-line py-1.5 text-zinc-500 fade-in">ORBIT reinitialise.</div>';
             previewFrame.src = 'about:blank';
             urlDisplay.value = 'about:blank';
             emptyState.classList.remove('hidden');
             totalTokens = 0;
             tokenCount.textContent = '0';
         }
+
+        // Close modal on outside click
+        document.getElementById('git-modal').addEventListener('click', function (e) {
+            if (e.target === this) closeGitModal();
+        });
 
         // Init
         userInput.focus();
