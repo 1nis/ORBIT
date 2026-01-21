@@ -97,6 +97,135 @@ class SystemHealth:
 SystemHealth.check_all()
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# SCANNER DE CONTEXTE PROJET (Auto-compréhension du code)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class ProjectContextScanner:
+    """Scanne un projet et génère un résumé de contexte automatique."""
+    
+    # Fichiers clés à lire pour comprendre le projet
+    KEY_FILES = ['README.md', 'readme.md', 'package.json', 'requirements.txt', 
+                 'index.html', 'app.py', 'main.py', 'server.js', 'index.js']
+    
+    # Extensions de code à analyser
+    CODE_EXTENSIONS = {'.py', '.js', '.ts', '.html', '.css', '.jsx', '.tsx', '.vue'}
+    
+    @classmethod
+    def scan_project(cls, project_path: str) -> str:
+        """Scanne le projet et retourne un résumé de contexte."""
+        if not os.path.exists(project_path):
+            return ""
+        
+        context_parts = []
+        
+        # 1. Nom du projet
+        project_name = os.path.basename(project_path)
+        context_parts.append(f"📂 PROJET: {project_name}")
+        
+        # 2. Liste des fichiers (compacte)
+        files = cls._get_file_tree(project_path)
+        if files:
+            context_parts.append(f"📁 FICHIERS: {files}")
+        
+        # 3. Technologies détectées
+        tech = cls._detect_technologies(project_path)
+        if tech:
+            context_parts.append(f"🔧 TECH: {', '.join(tech)}")
+        
+        # 4. Lecture du README (s'il existe)
+        readme = cls._read_readme(project_path)
+        if readme:
+            context_parts.append(f"📖 README:\n{readme}")
+        
+        # 5. Structure principale du code
+        structure = cls._analyze_main_files(project_path)
+        if structure:
+            context_parts.append(f"💻 CODE:\n{structure}")
+        
+        return "\n\n".join(context_parts)
+    
+    @classmethod
+    def _get_file_tree(cls, path: str, max_files: int = 25) -> str:
+        """Liste compacte des fichiers."""
+        try:
+            items = []
+            for root, dirs, files in os.walk(path):
+                # Ignorer certains dossiers
+                dirs[:] = [d for d in dirs if d not in ['.git', '__pycache__', 'venv', 'node_modules', '.venv']]
+                rel_root = os.path.relpath(root, path)
+                for f in files:
+                    if not f.startswith('.'):
+                        if rel_root == '.':
+                            items.append(f)
+                        else:
+                            items.append(f"{rel_root}/{f}")
+                        if len(items) >= max_files:
+                            break
+                if len(items) >= max_files:
+                    break
+            return " | ".join(items[:max_files])
+        except:
+            return ""
+    
+    @classmethod
+    def _detect_technologies(cls, path: str) -> List[str]:
+        """Détecte les technologies utilisées."""
+        tech = []
+        files = os.listdir(path)
+        
+        if 'package.json' in files:
+            tech.append('Node.js')
+        if 'requirements.txt' in files or any(f.endswith('.py') for f in files):
+            tech.append('Python')
+        if any(f.endswith('.html') for f in files):
+            tech.append('HTML')
+        if any(f.endswith('.ts') in files for f in files):
+            tech.append('TypeScript')
+        if 'Dockerfile' in files:
+            tech.append('Docker')
+        if '.git' in os.listdir(path):
+            tech.append('Git')
+        
+        return tech[:5]  # Max 5
+    
+    @classmethod
+    def _read_readme(cls, path: str) -> str:
+        """Lit le README et retourne un résumé."""
+        for readme_name in ['README.md', 'readme.md', 'README.txt']:
+            readme_path = os.path.join(path, readme_name)
+            if os.path.exists(readme_path):
+                try:
+                    with open(readme_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    # Garder les 500 premiers caractères
+                    return content[:500] + ('...' if len(content) > 500 else '')
+                except:
+                    pass
+        return ""
+    
+    @classmethod
+    def _analyze_main_files(cls, path: str) -> str:
+        """Analyse les fichiers principaux du projet."""
+        summaries = []
+        
+        for filename in cls.KEY_FILES:
+            filepath = os.path.join(path, filename)
+            if os.path.exists(filepath):
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    # Extraire les premières lignes (imports, structure)
+                    lines = content.split('\n')[:15]
+                    summary = '\n'.join(lines)
+                    if len(summary) > 300:
+                        summary = summary[:300] + '...'
+                    summaries.append(f"[{filename}]\n{summary}")
+                except:
+                    pass
+        
+        return "\n\n".join(summaries[:3])  # Max 3 fichiers
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # SÉCURITÉ
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -251,13 +380,45 @@ class MemoryManager:
                 return False
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            orchestrator.conversation_boss = data.get("boss", [])
-            orchestrator.conversation_coder = data.get("coder", [])
-            orchestrator.conversation_reviewer = data.get("reviewer", [])
+            
+            # Valider et nettoyer les conversations avant de les charger
+            def is_valid_conversation(conv):
+                """Vérifie si une conversation est valide pour l'API."""
+                if not isinstance(conv, list):
+                    return False
+                for msg in conv:
+                    if not isinstance(msg, dict):
+                        return False
+                    if "role" not in msg or "content" not in msg:
+                        return False
+                    content = msg.get("content")
+                    # Rejeter si le contenu est une string qui ressemble à du Python repr
+                    if isinstance(content, str) and ("TextBlock(" in content or "ToolUseBlock(" in content):
+                        return False
+                    # Rejeter si le contenu est une liste avec des strings au lieu de dicts
+                    if isinstance(content, list):
+                        for item in content:
+                            if isinstance(item, str) and ("TextBlock(" in item or "ToolUseBlock(" in item):
+                                return False
+                return True
+            
+            # Ne charger que les conversations valides
+            boss = data.get("boss", [])
+            coder = data.get("coder", [])
+            reviewer = data.get("reviewer", [])
+            
+            if is_valid_conversation(boss):
+                orchestrator.conversation_boss = boss
+            if is_valid_conversation(coder):
+                orchestrator.conversation_coder = coder
+            if is_valid_conversation(reviewer):
+                orchestrator.conversation_reviewer = reviewer
+            
             orchestrator.created_files = data.get("files", [])
             logger.info(f"🧠 Mémoire chargée")
             return True
-        except:
+        except Exception as e:
+            logger.warning(f"⚠️ Mémoire non chargée: {e}")
             return False
     
     def clear(self) -> bool:
@@ -937,7 +1098,7 @@ def create_project():
 
 @app.route('/projects/select', methods=['POST'])
 def select_project():
-    """Sélectionne un projet existant."""
+    """Sélectionne un projet existant et charge son contexte automatiquement."""
     global WORKSPACE_DIR
     data = request.json or {}
     name = data.get('name', '')
@@ -949,9 +1110,21 @@ def select_project():
     
     WORKSPACE_DIR = project_path
     orchestrator.reset()
-    memory_manager.load(orchestrator)
+    
+    # Charger la mémoire existante si disponible
+    memory_loaded = memory_manager.load(orchestrator)
+    
+    # Scanner le projet et injecter le contexte si pas de mémoire
+    if not memory_loaded or len(orchestrator.conversation_boss) == 0:
+        context = ProjectContextScanner.scan_project(project_path)
+        if context:
+            # Injecter le contexte comme premier message système
+            context_message = f"[CONTEXTE PROJET AUTO-DÉTECTÉ]\n{context}"
+            orchestrator.conversation_boss = [{"role": "user", "content": context_message}]
+            logger.info(f"🔍 Contexte projet scanné et chargé")
+    
     logger.info(f"📂 Projet sélectionné: {name}")
-    return jsonify({"success": True, "message": f"'{name}' sélectionné", "path": project_path})
+    return jsonify({"success": True, "message": f"'{name}' sélectionné", "path": project_path, "context_loaded": True})
 
 @app.route('/projects/current')
 def current_project():
