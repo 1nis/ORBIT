@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ANTIGRAVITY STUDIO v3</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        zinc: { 950: '#09090b', 900: '#18181b', 800: '#27272a', 700: '#3f3f46', 600: '#52525b', 500: '#71717a', 400: '#a1a1aa' },
+                        boss: { DEFAULT: '#8b5cf6', light: '#a78bfa', dark: '#7c3aed' },
+                        coder: { DEFAULT: '#f59e0b', light: '#fbbf24', dark: '#d97706' },
+                        reviewer: { DEFAULT: '#10b981', light: '#34d399', dark: '#059669' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        * {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        body {
+            background: #09090b;
+            color: #fafafa;
+        }
+
+        ::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #3f3f46;
+            border-radius: 3px;
+        }
+
+        /* Agent badges */
+        .badge-boss {
+            background: rgba(139, 92, 246, 0.15);
+            color: #a78bfa;
+            border: 1px solid rgba(139, 92, 246, 0.3);
+        }
+
+        .badge-coder {
+            background: rgba(245, 158, 11, 0.15);
+            color: #fbbf24;
+            border: 1px solid rgba(245, 158, 11, 0.3);
+        }
+
+        .badge-reviewer {
+            background: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .badge-git {
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        /* Tab styles */
+        .tab {
+            transition: all 0.2s;
+            border-bottom: 2px solid transparent;
+        }
+
+        .tab.active-boss {
+            border-color: #8b5cf6;
+            color: #a78bfa;
+        }
+
+        .tab.active-coder {
+            border-color: #f59e0b;
+            color: #fbbf24;
+        }
+
+        .tab.active-reviewer {
+            border-color: #10b981;
+            color: #34d399;
+        }
+
+        /* Terminal styles */
+        .terminal {
+            background: #0c0c0e;
+            border: 1px solid #1f1f23;
+        }
+
+        .terminal-line {
+            border-left: 2px solid transparent;
+            padding-left: 8px;
+        }
+
+        .terminal-line.boss {
+            border-color: #8b5cf6;
+        }
+
+        .terminal-line.coder {
+            border-color: #f59e0b;
+        }
+
+        .terminal-line.reviewer {
+            border-color: #10b981;
+        }
+
+        .terminal-line.tool {
+            border-color: #3f3f46;
+            background: rgba(0, 0, 0, 0.3);
+        }
+
+        .terminal-line.error {
+            border-color: #ef4444;
+            background: rgba(239, 68, 68, 0.1);
+        }
+
+        .terminal-line.success {
+            border-color: #10b981;
+        }
+
+        /* Toggle switch */
+        .toggle {
+            width: 36px;
+            height: 20px;
+            background: #27272a;
+            border-radius: 10px;
+            position: relative;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+
+        .toggle.active {
+            background: #8b5cf6;
+        }
+
+        .toggle::after {
+            content: '';
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            background: white;
+            border-radius: 50%;
+            top: 2px;
+            left: 2px;
+            transition: 0.3s;
+        }
+
+        .toggle.active::after {
+            left: 18px;
+        }
+
+        /* Animations */
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(4px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .fade-in {
+            animation: fadeIn 0.2s ease-out;
+        }
+
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+
+        /* Phase indicator */
+        .phase-indicator {
+            transition: all 0.3s;
+        }
+
+        .phase-indicator.active {
+            box-shadow: 0 0 20px currentColor;
+        }
+    </style>
+</head>
+
+<body class="h-screen flex flex-col overflow-hidden">
+
+    <!-- Header -->
+    <header class="h-11 border-b border-zinc-800/50 flex items-center justify-between px-4 bg-zinc-950 shrink-0">
+        <div class="flex items-center gap-3">
+            <div class="w-2 h-2 rounded-full bg-white" style="box-shadow: 0 0 10px rgba(255,255,255,0.5)"></div>
+            <span class="font-semibold text-sm">ANTIGRAVITY</span>
+            <span
+                class="text-[10px] text-zinc-500 px-2 py-0.5 border border-zinc-800 rounded bg-zinc-900/50 font-medium">v3
+                MULTI-AGENT</span>
+        </div>
+
+        <!-- Control Panel -->
+        <div class="flex items-center gap-4">
+            <!-- Model Selector -->
+            <div class="flex items-center gap-2">
+                <span class="text-[10px] text-zinc-600 mono">MODEL</span>
+                <select id="model-select" onchange="updateConfig()"
+                    class="bg-zinc-900 border border-zinc-800 text-xs text-zinc-400 rounded px-2 py-1 focus:outline-none">
+                    <option value="sonnet">Sonnet</option>
+                    <option value="opus">Opus</option>
+                </select>
+            </div>
+
+            <!-- Autopilot Toggle -->
+            <div class="flex items-center gap-2">
+                <span class="text-[10px] text-zinc-600 mono">AUTOPILOT</span>
+                <div id="autopilot-toggle" class="toggle active" onclick="toggleAutopilot()"></div>
+            </div>
+
+            <!-- Usage Stats -->
+            <div class="flex items-center gap-2 text-[10px] mono text-zinc-600">
+                <span>TOKENS:</span>
+                <span id="token-count" class="text-zinc-400">0</span>
+            </div>
+
+            <!-- Reset -->
+            <button onclick="resetAll()"
+                class="text-[10px] text-zinc-600 hover:text-zinc-400 mono px-2 py-1 rounded hover:bg-zinc-800/50">
+                RESET
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="flex flex-1 overflow-hidden">
+
+        <!-- Left Panel: Agent Terminals (35%) -->
+        <div class="w-[35%] min-w-[380px] flex flex-col border-r border-zinc-800/50">
+
+            <!-- Agent Tabs -->
+            <div class="h-9 flex items-center border-b border-zinc-800/50 bg-zinc-900/30 px-2 gap-1">
+                <button onclick="switchTab('all')" id="tab-all"
+                    class="tab active-boss px-3 py-1.5 text-[11px] font-medium text-zinc-400 hover:text-white">
+                    ALL
+                </button>
+                <button onclick="switchTab('boss')" id="tab-boss"
+                    class="tab px-3 py-1.5 text-[11px] font-medium text-zinc-500 hover:text-boss-light flex items-center gap-1.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-boss"></span>BOSS
+                </button>
+                <button onclick="switchTab('coder')" id="tab-coder"
+                    class="tab px-3 py-1.5 text-[11px] font-medium text-zinc-500 hover:text-coder-light flex items-center gap-1.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-coder"></span>CODER
+                </button>
+                <button onclick="switchTab('reviewer')" id="tab-reviewer"
+                    class="tab px-3 py-1.5 text-[11px] font-medium text-zinc-500 hover:text-reviewer-light flex items-center gap-1.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-reviewer"></span>REVIEWER
+                </button>
+            </div>
+
+            <!-- Phase Indicator -->
+            <div class="h-8 flex items-center justify-center gap-4 border-b border-zinc-800/30 bg-black/30">
+                <div id="phase-boss" class="phase-indicator flex items-center gap-1.5 text-[10px] mono text-zinc-600">
+                    <span class="w-2 h-2 rounded-full bg-boss/30"></span>BOSS
+                </div>
+                <div class="text-zinc-700">→</div>
+                <div id="phase-coder" class="phase-indicator flex items-center gap-1.5 text-[10px] mono text-zinc-600">
+                    <span class="w-2 h-2 rounded-full bg-coder/30"></span>CODER
+                </div>
+                <div class="text-zinc-700">→</div>
+                <div id="phase-reviewer"
+                    class="phase-indicator flex items-center gap-1.5 text-[10px] mono text-zinc-600">
+                    <span class="w-2 h-2 rounded-full bg-reviewer/30"></span>REVIEWER
+                </div>
+                <div class="text-zinc-700">→</div>
+                <div id="phase-git" class="phase-indicator flex items-center gap-1.5 text-[10px] mono text-zinc-600">
+                    <span class="w-2 h-2 rounded-full bg-red-500/30"></span>GIT
+                </div>
+            </div>
+
+            <!-- Terminal Output -->
+            <div id="terminal" class="flex-1 overflow-y-auto p-3 space-y-2 text-[12px] mono">
+                <div class="terminal-line py-1.5 text-zinc-500 fade-in">
+                    Systeme multi-agents pret. BOSS | CODER | REVIEWER
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="p-3 border-t border-zinc-800/50 bg-zinc-900/30">
+                <div class="relative">
+                    <textarea id="user-input" rows="2"
+                        class="w-full bg-zinc-900 border border-zinc-800 text-white text-sm rounded-lg px-4 py-3 pr-12 
+                               focus:outline-none focus:border-zinc-700 transition-all placeholder-zinc-600 resize-none"
+                        placeholder="Decrivez votre projet..." onkeydown="handleKeydown(event)"></textarea>
+                    <button onclick="sendMessage()" id="send-btn" class="absolute right-2 bottom-2 p-2 bg-white text-black rounded-md 
+                               hover:bg-zinc-200 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2.5">
+                            <line x1="22" y1="2" x2="11" y2="13"></line>
+                            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Quick prompts -->
+                <div class="flex gap-1.5 mt-2 flex-wrap">
+                    <button onclick="insertPrompt('Cree une landing page moderne pour une startup IA')"
+                        class="text-[10px] text-zinc-600 hover:text-zinc-400 px-2 py-1 rounded bg-zinc-800/30 hover:bg-zinc-800/60 border border-zinc-800/50">
+                        Landing Page
+                    </button>
+                    <button onclick="insertPrompt('Cree un dashboard analytics avec des graphiques')"
+                        class="text-[10px] text-zinc-600 hover:text-zinc-400 px-2 py-1 rounded bg-zinc-800/30 hover:bg-zinc-800/60 border border-zinc-800/50">
+                        Dashboard
+                    </button>
+                    <button onclick="insertPrompt('Cree un jeu Snake en HTML/JS')"
+                        class="text-[10px] text-zinc-600 hover:text-zinc-400 px-2 py-1 rounded bg-zinc-800/30 hover:bg-zinc-800/60 border border-zinc-800/50">
+                        Mini Jeu
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Panel: Preview (65%) -->
+        <div class="flex-1 flex flex-col bg-zinc-950 relative">
+
+            <!-- Preview Header -->
+            <div class="h-10 border-b border-zinc-800/50 flex items-center px-4 bg-zinc-900/30 shrink-0">
+                <div class="flex gap-1.5 mr-3">
+                    <div class="w-2.5 h-2.5 rounded-full bg-zinc-800"></div>
+                    <div class="w-2.5 h-2.5 rounded-full bg-zinc-800"></div>
+                    <div class="w-2.5 h-2.5 rounded-full bg-zinc-800"></div>
+                </div>
+                <div class="flex-1 flex items-center gap-2 px-3 py-1 bg-zinc-900/50 rounded border border-zinc-800/50">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" class="text-zinc-600">
+                        <circle cx="12" cy="12" r="10"></circle>
+                    </svg>
+                    <input type="text" id="url-display" readonly
+                        class="flex-1 bg-transparent text-xs text-zinc-500 mono focus:outline-none" value="about:blank">
+                    <button onclick="refreshPreview()" class="text-zinc-600 hover:text-zinc-400">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2">
+                            <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Iframe -->
+            <iframe id="preview-frame" class="w-full flex-1 border-none bg-white"></iframe>
+
+            <!-- Empty State -->
+            <div id="empty-state"
+                class="absolute inset-0 top-10 flex items-center justify-center flex-col gap-4 bg-zinc-950">
+                <div class="w-20 h-20 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="1" class="text-zinc-700">
+                        <rect x="3" y="3" width="18" height="18" rx="2" />
+                        <path d="M3 9h18M9 21V9" />
+                    </svg>
+                </div>
+                <p class="text-sm text-zinc-500">Live Preview</p>
+                <p class="text-xs text-zinc-700">Le resultat s'affichera ici automatiquement</p>
+            </div>
+
+            <!-- Loading Overlay -->
+            <div id="loading-overlay"
+                class="absolute inset-0 top-10 bg-black/80 backdrop-blur-sm hidden items-center justify-center flex-col gap-3">
+                <div class="flex gap-1">
+                    <span class="w-2 h-2 bg-boss rounded-full pulse"></span>
+                    <span class="w-2 h-2 bg-coder rounded-full pulse" style="animation-delay:0.2s"></span>
+                    <span class="w-2 h-2 bg-reviewer rounded-full pulse" style="animation-delay:0.4s"></span>
+                </div>
+                <span id="loading-text" class="text-xs text-zinc-400 mono">Processing...</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ═══════════════════════════════════════════════════════════════════
+        // STATE
+        // ═══════════════════════════════════════════════════════════════════
+        let isProcessing = false;
+        let currentTab = 'all';
+        let autopilot = true;
+        let totalTokens = 0;
+
+        // DOM
+        const terminal = document.getElementById('terminal');
+        const userInput = document.getElementById('user-input');
+        const sendBtn = document.getElementById('send-btn');
+        const previewFrame = document.getElementById('preview-frame');
+        const urlDisplay = document.getElementById('url-display');
+        const emptyState = document.getElementById('empty-state');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const loadingText = document.getElementById('loading-text');
+        const tokenCount = document.getElementById('token-count');
+
+        // ═══════════════════════════════════════════════════════════════════
+        // TERMINAL OUTPUT
+        // ═══════════════════════════════════════════════════════════════════
+
+        function addTerminalLine(agent, content, type = '') {
+            const line = document.createElement('div');
+            line.className = `terminal-line py-1.5 fade-in ${agent} ${type}`;
+            line.dataset.agent = agent;
+
+            let badge = '';
+            if (agent === 'boss') badge = '<span class="badge-boss text-[9px] px-1.5 py-0.5 rounded mr-2">BOSS</span>';
+            else if (agent === 'coder') badge = '<span class="badge-coder text-[9px] px-1.5 py-0.5 rounded mr-2">CODER</span>';
+            else if (agent === 'reviewer') badge = '<span class="badge-reviewer text-[9px] px-1.5 py-0.5 rounded mr-2">REVIEWER</span>';
+            else if (agent === 'git') badge = '<span class="badge-git text-[9px] px-1.5 py-0.5 rounded mr-2">GIT</span>';
+
+            line.innerHTML = badge + formatContent(content);
+            terminal.appendChild(line);
+            terminal.scrollTop = terminal.scrollHeight;
+
+            filterByTab();
+        }
+
+        function addToolLine(agent, tool, success, details = '') {
+            const icon = success ? '✓' : '✗';
+            const color = success ? 'text-reviewer' : 'text-red-400';
+            const content = `<span class="${color}">${icon}</span> <span class="text-zinc-500">${tool}</span> ${details ? `<span class="text-zinc-600">→ ${truncate(details, 40)}</span>` : ''}`;
+            addTerminalLine(agent, content, success ? 'success' : 'error');
+        }
+
+        function formatContent(text) {
+            return text
+                .replace(/\[ANALYSE\]/g, '<span class="text-boss-light font-medium">[ANALYSE]</span>')
+                .replace(/\[PLAN\]/g, '<span class="text-boss-light font-medium">[PLAN]</span>')
+                .replace(/\[INSTRUCTION_CODER\]/g, '<span class="text-coder-light font-medium">[INSTRUCTION_CODER]</span>')
+                .replace(/\[ACTION\]/g, '<span class="text-coder-light font-medium">[ACTION]</span>')
+                .replace(/\[EXECUTION\]/g, '<span class="text-coder-light font-medium">[EXECUTION]</span>')
+                .replace(/\[RESULTAT\]/g, '<span class="text-coder-light font-medium">[RESULTAT]</span>')
+                .replace(/\[REVIEW\]/g, '<span class="text-reviewer-light font-medium">[REVIEW]</span>')
+                .replace(/\[CHECKLIST\]/g, '<span class="text-reviewer-light font-medium">[CHECKLIST]</span>')
+                .replace(/\[VERDICT\]/g, '<span class="text-reviewer-light font-medium">[VERDICT]</span>')
+                .replace(/\[x\]/g, '<span class="text-reviewer">✓</span>')
+                .replace(/\[ \]/g, '<span class="text-zinc-600">○</span>')
+                .replace(/`([^`]+)`/g, '<code class="bg-zinc-800 px-1 rounded text-[11px]">$1</code>')
+                .replace(/\n/g, '<br>');
+        }
+
+        function truncate(str, len) {
+            return str.length > len ? str.substring(0, len) + '...' : str;
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // PHASE INDICATOR
+        // ═══════════════════════════════════════════════════════════════════
+
+        function setPhase(phase) {
+            ['boss', 'coder', 'reviewer', 'git'].forEach(p => {
+                const el = document.getElementById(`phase-${p}`);
+                el.classList.remove('active', 'text-white');
+                el.querySelector('span').classList.remove('pulse');
+                if (p === phase.toLowerCase()) {
+                    el.classList.add('active', 'text-white');
+                    el.querySelector('span').classList.add('pulse');
+                    el.style.color = p === 'boss' ? '#a78bfa' : p === 'coder' ? '#fbbf24' : p === 'reviewer' ? '#34d399' : '#f87171';
+                } else {
+                    el.style.color = '';
+                }
+            });
+            loadingText.textContent = phase + '...';
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // TABS
+        // ═══════════════════════════════════════════════════════════════════
+
+        function switchTab(tab) {
+            currentTab = tab;
+            document.querySelectorAll('.tab').forEach(t => {
+                t.classList.remove('active-boss', 'active-coder', 'active-reviewer');
+                t.classList.add('text-zinc-500');
+            });
+            const activeTab = document.getElementById(`tab-${tab}`);
+            activeTab.classList.remove('text-zinc-500');
+            activeTab.classList.add(`active-${tab === 'all' ? 'boss' : tab}`);
+            filterByTab();
+        }
+
+        function filterByTab() {
+            document.querySelectorAll('.terminal-line').forEach(line => {
+                if (currentTab === 'all') {
+                    line.style.display = '';
+                } else {
+                    line.style.display = line.dataset.agent === currentTab ? '' : 'none';
+                }
+            });
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // CONFIG
+        // ═══════════════════════════════════════════════════════════════════
+
+        function toggleAutopilot() {
+            autopilot = !autopilot;
+            document.getElementById('autopilot-toggle').classList.toggle('active', autopilot);
+            updateConfig();
+        }
+
+        async function updateConfig() {
+            const model = document.getElementById('model-select').value;
+            await fetch('/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ autopilot, model })
+            });
+        }
+
+        async function loadUsage() {
+            const res = await fetch('/usage');
+            const data = await res.json();
+            totalTokens = data.total_input_tokens + data.total_output_tokens;
+            tokenCount.textContent = totalTokens.toLocaleString();
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // MAIN CHAT
+        // ═══════════════════════════════════════════════════════════════════
+
+        async function sendMessage() {
+            const text = userInput.value.trim();
+            if (!text || isProcessing) return;
+
+            isProcessing = true;
+            sendBtn.disabled = true;
+            userInput.value = '';
+
+            // Show user message
+            addTerminalLine('', `<span class="text-white bg-zinc-800 px-2 py-1 rounded">${text}</span>`, '');
+
+            // Show loading
+            loadingOverlay.classList.remove('hidden');
+            loadingOverlay.style.display = 'flex';
+
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: text })
+                });
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const event = JSON.parse(line.slice(6));
+                                handleEvent(event);
+                            } catch (e) { }
+                        }
+                    }
+                }
+            } catch (error) {
+                addTerminalLine('', `<span class="text-red-400">Erreur: ${error.message}</span>`, 'error');
+            } finally {
+                isProcessing = false;
+                sendBtn.disabled = false;
+                loadingOverlay.classList.add('hidden');
+                loadingOverlay.style.display = 'none';
+                loadUsage();
+            }
+        }
+
+        function handleEvent(event) {
+            switch (event.type) {
+                case 'phase':
+                    setPhase(event.phase);
+                    addTerminalLine(event.phase.toLowerCase(), `<span class="text-zinc-400">--- ${event.phase}: ${event.status} ---</span>`, '');
+                    break;
+
+                case 'agent_text':
+                    addTerminalLine(event.agent, event.content, '');
+                    break;
+
+                case 'tool_result':
+                    const detail = event.result.filename || event.result.message || '';
+                    addToolLine(event.agent, event.tool, event.success, detail);
+                    break;
+
+                case 'agent_complete':
+                    // Agent finished
+                    break;
+
+                case 'complete':
+                    if (event.preview) {
+                        loadPreview(event.preview);
+                    }
+                    addTerminalLine('', '<span class="text-reviewer">✓ Tache terminee</span>', 'success');
+                    break;
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // PREVIEW
+        // ═══════════════════════════════════════════════════════════════════
+
+        function loadPreview(filename) {
+            const url = `/view/${filename}?t=${Date.now()}`;
+            urlDisplay.value = url;
+            emptyState.classList.add('hidden');
+            previewFrame.src = url;
+        }
+
+        function refreshPreview() {
+            if (previewFrame.src && previewFrame.src !== 'about:blank') {
+                previewFrame.src = previewFrame.src.split('?')[0] + '?t=' + Date.now();
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // UTILS
+        // ═══════════════════════════════════════════════════════════════════
+
+        function handleKeydown(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        }
+
+        function insertPrompt(text) {
+            userInput.value = text;
+            userInput.focus();
+        }
+
+        async function resetAll() {
+            if (!confirm('Reinitialiser?')) return;
+            await fetch('/reset', { method: 'POST' });
+            terminal.innerHTML = '<div class="terminal-line py-1.5 text-zinc-500 fade-in">Systeme reinitialise.</div>';
+            previewFrame.src = 'about:blank';
+            urlDisplay.value = 'about:blank';
+            emptyState.classList.remove('hidden');
+            totalTokens = 0;
+            tokenCount.textContent = '0';
+        }
+
+        // Init
+        userInput.focus();
+        loadUsage();
+    </script>
+</body>
+
+</html>
