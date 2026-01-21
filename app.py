@@ -459,15 +459,37 @@ class AgentOrchestrator:
         compressed_messages = TokenOptimizer.compress_conversation(messages)
         
         model = CONFIG["models"].get(agent, CONFIG["models"]["coder"])
-        response = client.messages.create(
-            model=model,
-            max_tokens=Config.MAX_TOKENS,
-            system=system_prompt,
-            messages=compressed_messages,
-            tools=TOOLS
-        )
-        self.track_usage(response, agent)
-        return response
+        
+        # Retry automatique pour erreurs réseau (3 tentatives)
+        import time
+        max_retries = 3
+        last_error = None
+        
+        for attempt in range(max_retries):
+            try:
+                response = client.messages.create(
+                    model=model,
+                    max_tokens=Config.MAX_TOKENS,
+                    system=system_prompt,
+                    messages=compressed_messages,
+                    tools=TOOLS
+                )
+                self.track_usage(response, agent)
+                return response
+            except Exception as e:
+                last_error = e
+                error_msg = str(e).lower()
+                # Retry seulement pour erreurs réseau/temporaires
+                if any(x in error_msg for x in ["network", "timeout", "connection", "overloaded", "529", "500", "502", "503"]):
+                    wait_time = (attempt + 1) * 2  # 2s, 4s, 6s
+                    logger.warning(f"⚠️ Erreur réseau {agent} (tentative {attempt+1}/{max_retries}), retry dans {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    # Erreur non-réseau, ne pas retry
+                    raise e
+        
+        # Toutes les tentatives échouées
+        raise RuntimeError(f"Échec après {max_retries} tentatives: {last_error}")
     
     def process_tool_calls(self, response, conversation: list) -> List[Dict]:
         results = []
