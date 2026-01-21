@@ -356,13 +356,29 @@ class MemoryManager:
     
     def save(self, orchestrator: 'AgentOrchestrator') -> bool:
         try:
+            # Fonction pour nettoyer les objets non sérialisables
+            def make_serializable(obj):
+                if isinstance(obj, (str, int, float, bool, type(None))):
+                    return obj
+                if isinstance(obj, dict):
+                    return {k: make_serializable(v) for k, v in obj.items()}
+                if isinstance(obj, list):
+                    return [make_serializable(x) for x in obj]
+                # Si c'est un objet Anthropic ou autre classe
+                if hasattr(obj, '__dict__'):
+                    return make_serializable(obj.__dict__)
+                if hasattr(obj, 'to_dict'):
+                    return make_serializable(obj.to_dict())
+                # Fallback string
+                return str(obj)
+
             # Compresser avant sauvegarde
             data = {
                 "saved_at": datetime.now().isoformat(),
                 "workspace": WORKSPACE_DIR,
-                "boss": TokenOptimizer.compress_conversation(orchestrator.conversation_boss),
-                "coder": TokenOptimizer.compress_conversation(orchestrator.conversation_coder),
-                "reviewer": TokenOptimizer.compress_conversation(orchestrator.conversation_reviewer),
+                "boss": make_serializable(TokenOptimizer.compress_conversation(orchestrator.conversation_boss)),
+                "coder": make_serializable(TokenOptimizer.compress_conversation(orchestrator.conversation_coder)),
+                "reviewer": make_serializable(TokenOptimizer.compress_conversation(orchestrator.conversation_reviewer)),
                 "files": orchestrator.created_files[-10:],  # Garder les 10 derniers
                 "usage": USAGE_STATS
             }
@@ -721,15 +737,27 @@ class AgentOrchestrator:
         yield {"type": "phase", "phase": "BOSS", "status": "Planning"}
         
         self.conversation_boss.append({"role": "user", "content": user_message})
-        response = self.call_agent("boss", self.conversation_boss, BOSS_PROMPT)
         
+        # Exécuter Boss avec boucle d'outils (max 3 tours pour analyse)
         boss_text = ""
-        for block in response.content:
-            if block.type == "text":
-                boss_text = block.text
-                yield {"type": "agent_text", "agent": "boss", "content": block.text}
+        for event in self.run_agent_loop("boss", user_message, BOSS_PROMPT, self.conversation_boss, max_turns=3):
+            yield event
+            if event.get("type") == "agent_text":
+                boss_text += event.get("content", "")
         
-        self.conversation_boss.append({"role": "assistant", "content": response.content})
+        # Récupérer le dernier texte complet pour les instructions
+        if not boss_text:
+             # Fallback si le texte est splité sur plusieurs tours, on prend le dernier message assistant
+             for msg in reversed(self.conversation_boss):
+                 if msg["role"] == "assistant":
+                     content = msg["content"]
+                     if isinstance(content, str):
+                         boss_text = content
+                     elif isinstance(content, list):
+                         for block in content:
+                             if block.get("type") == "text":
+                                 boss_text += block.get("text", "")
+                     break
         
         coder_instructions = boss_text
         if "[INSTRUCTION_CODER]" in boss_text:
