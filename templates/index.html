@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ORBIT - Development Studio</title>
+    <title>ORBIT v3 - Autonomous Development Studio</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
@@ -18,7 +18,9 @@
                         boss: { DEFAULT: '#8b5cf6', light: '#a78bfa', dark: '#7c3aed' },
                         coder: { DEFAULT: '#f59e0b', light: '#fbbf24', dark: '#d97706' },
                         reviewer: { DEFAULT: '#10b981', light: '#34d399', dark: '#059669' },
-                        orbit: { DEFAULT: '#3b82f6', light: '#60a5fa', dark: '#2563eb' }
+                        orbit: { DEFAULT: '#3b82f6', light: '#60a5fa', dark: '#2563eb' },
+                        chat: { DEFAULT: '#06b6d4', light: '#22d3ee', dark: '#0891b2' },
+                        readme: { DEFAULT: '#ec4899', light: '#f472b6', dark: '#db2777' }
                     }
                 }
             }
@@ -76,6 +78,24 @@
             border: 1px solid rgba(239, 68, 68, 0.3);
         }
 
+        .badge-chat {
+            background: rgba(6, 182, 212, 0.15);
+            color: #22d3ee;
+            border: 1px solid rgba(6, 182, 212, 0.3);
+        }
+
+        .badge-readme {
+            background: rgba(236, 72, 153, 0.15);
+            color: #f472b6;
+            border: 1px solid rgba(236, 72, 153, 0.3);
+        }
+
+        .badge-loop {
+            background: rgba(59, 130, 246, 0.15);
+            color: #60a5fa;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+
         .tab {
             transition: all 0.2s;
             border-bottom: 2px solid transparent;
@@ -94,6 +114,11 @@
         .tab.active-reviewer {
             border-color: #10b981;
             color: #34d399;
+        }
+
+        .tab.active-chat {
+            border-color: #06b6d4;
+            color: #22d3ee;
         }
 
         .terminal {
@@ -118,6 +143,14 @@
             border-color: #10b981;
         }
 
+        .terminal-line.chat {
+            border-color: #06b6d4;
+        }
+
+        .terminal-line.readme {
+            border-color: #ec4899;
+        }
+
         .terminal-line.tool {
             border-color: #3f3f46;
             background: rgba(0, 0, 0, 0.3);
@@ -130,6 +163,11 @@
 
         .terminal-line.success {
             border-color: #10b981;
+        }
+
+        .terminal-line.loop {
+            border-color: #3b82f6;
+            background: rgba(59, 130, 246, 0.1);
         }
 
         .toggle {
@@ -202,6 +240,23 @@
             box-shadow: 0 0 20px currentColor;
         }
 
+        /* Intent Badge */
+        .intent-badge {
+            transition: all 0.3s;
+            opacity: 0;
+            transform: scale(0.9);
+        }
+
+        .intent-badge.visible {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        /* Loop Counter */
+        .loop-counter {
+            transition: all 0.3s;
+        }
+
         /* Git Modal */
         .modal-overlay {
             background: rgba(0, 0, 0, 0.8);
@@ -250,6 +305,15 @@
         .git-btn.success:hover {
             background: #059669;
         }
+
+        .git-btn.readme {
+            background: #ec4899;
+            border-color: #db2777;
+        }
+
+        .git-btn.readme:hover {
+            background: #db2777;
+        }
     </style>
 </head>
 
@@ -261,7 +325,21 @@
             <div class="w-2 h-2 rounded-full bg-blue-500" style="box-shadow: 0 0 10px rgba(59,130,246,0.5)"></div>
             <span class="font-semibold text-sm">ORBIT</span>
             <span
-                class="text-[10px] text-zinc-500 px-2 py-0.5 border border-zinc-800 rounded bg-zinc-900/50 font-medium">STUDIO</span>
+                class="text-[10px] text-zinc-500 px-2 py-0.5 border border-zinc-800 rounded bg-zinc-900/50 font-medium">v3.0</span>
+
+            <!-- Intent Badge -->
+            <div id="intent-badge" class="intent-badge flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium">
+                <span id="intent-icon"></span>
+                <span id="intent-text">-</span>
+            </div>
+
+            <!-- Loop Counter -->
+            <div id="loop-counter" class="loop-counter hidden flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium badge-loop">
+                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9"></path>
+                </svg>
+                <span id="loop-text">Loop 1/5</span>
+            </div>
         </div>
 
         <!-- Control Panel -->
@@ -287,6 +365,19 @@
                 <span>TOKENS:</span>
                 <span id="token-count" class="text-zinc-400">0</span>
             </div>
+
+            <!-- README Button -->
+            <button onclick="generateSmartReadme()"
+                class="flex items-center gap-1 text-[10px] text-pink-400 border border-pink-700 hover:border-pink-500 bg-zinc-900 px-2 py-1 rounded hover:text-pink-300 transition-all">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                </svg>
+                README
+            </button>
 
             <!-- Project Button -->
             <button onclick="openProjectModal()"
@@ -340,25 +431,33 @@
                 </button>
                 <button onclick="switchTab('reviewer')" id="tab-reviewer"
                     class="tab px-3 py-1.5 text-[11px] font-medium text-zinc-500 hover:text-reviewer-light flex items-center gap-1.5">
-                    <span class="w-1.5 h-1.5 rounded-full bg-reviewer"></span>REVIEWER
+                    <span class="w-1.5 h-1.5 rounded-full bg-reviewer"></span>REVIEW
+                </button>
+                <button onclick="switchTab('chat')" id="tab-chat"
+                    class="tab px-3 py-1.5 text-[11px] font-medium text-zinc-500 hover:text-chat-light flex items-center gap-1.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-chat"></span>CHAT
                 </button>
             </div>
 
             <!-- Phase Indicator -->
             <div class="h-8 flex items-center justify-center gap-4 border-b border-zinc-800/30 bg-black/30">
+                <div id="phase-chat" class="phase-indicator flex items-center gap-1.5 text-[10px] mono text-zinc-600">
+                    <span class="w-2 h-2 rounded-full bg-chat/30"></span>CHAT
+                </div>
+                <div class="text-zinc-700">|</div>
                 <div id="phase-boss" class="phase-indicator flex items-center gap-1.5 text-[10px] mono text-zinc-600">
                     <span class="w-2 h-2 rounded-full bg-boss/30"></span>BOSS
                 </div>
-                <div class="text-zinc-700">→</div>
+                <div class="text-zinc-700">-></div>
                 <div id="phase-coder" class="phase-indicator flex items-center gap-1.5 text-[10px] mono text-zinc-600">
                     <span class="w-2 h-2 rounded-full bg-coder/30"></span>CODER
                 </div>
-                <div class="text-zinc-700">→</div>
+                <div class="text-zinc-700">-></div>
                 <div id="phase-reviewer"
                     class="phase-indicator flex items-center gap-1.5 text-[10px] mono text-zinc-600">
-                    <span class="w-2 h-2 rounded-full bg-reviewer/30"></span>REVIEWER
+                    <span class="w-2 h-2 rounded-full bg-reviewer/30"></span>REVIEW
                 </div>
-                <div class="text-zinc-700">→</div>
+                <div class="text-zinc-700">-></div>
                 <div id="phase-git" class="phase-indicator flex items-center gap-1.5 text-[10px] mono text-zinc-600">
                     <span class="w-2 h-2 rounded-full bg-red-500/30"></span>GIT
                 </div>
@@ -367,7 +466,7 @@
             <!-- Terminal Output -->
             <div id="terminal" class="flex-1 overflow-y-auto p-3 space-y-2 text-[12px] mono">
                 <div class="terminal-line py-1.5 text-zinc-500 fade-in">
-                    ORBIT ready. Agents: BOSS | CODER | REVIEWER
+                    ORBIT v3 ready. Modes: [CHAT] Conversation | [DEV] Code | [README] Doc
                 </div>
             </div>
 
@@ -375,10 +474,10 @@
             <div class="p-3 border-t border-zinc-800/50 bg-zinc-900/30">
                 <div class="relative">
                     <textarea id="user-input" rows="2"
-                        class="w-full bg-zinc-900 border border-zinc-800 text-white text-sm rounded-lg px-4 py-3 pr-12 
+                        class="w-full bg-zinc-900 border border-zinc-800 text-white text-sm rounded-lg px-4 py-3 pr-12
                                focus:outline-none focus:border-zinc-700 transition-all placeholder-zinc-600 resize-none"
-                        placeholder="Decrivez votre projet..." onkeydown="handleKeydown(event)"></textarea>
-                    <button onclick="sendMessage()" id="send-btn" class="absolute right-2 bottom-2 p-2 bg-white text-black rounded-md 
+                        placeholder="Decrivez votre projet ou posez une question..." onkeydown="handleKeydown(event)"></textarea>
+                    <button onclick="sendMessage()" id="send-btn" class="absolute right-2 bottom-2 p-2 bg-white text-black rounded-md
                                hover:bg-zinc-200 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2.5">
@@ -401,6 +500,10 @@
                     <button onclick="insertPrompt('Cree un jeu Snake en HTML/JS')"
                         class="text-[10px] text-zinc-600 hover:text-zinc-400 px-2 py-1 rounded bg-zinc-800/30 hover:bg-zinc-800/60 border border-zinc-800/50">
                         Mini Jeu
+                    </button>
+                    <button onclick="insertPrompt('Bonjour, qui es-tu?')"
+                        class="text-[10px] text-cyan-600 hover:text-cyan-400 px-2 py-1 rounded bg-cyan-900/20 hover:bg-cyan-900/40 border border-cyan-800/50">
+                        Chat
                     </button>
                 </div>
             </div>
@@ -429,6 +532,15 @@
                             <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
                         </svg>
                     </button>
+                </div>
+
+                <!-- Server Port Selector -->
+                <div id="server-selector" class="hidden ml-2 flex items-center gap-2">
+                    <span class="text-[10px] text-zinc-600">PORT:</span>
+                    <select id="server-port" onchange="changeServerPort()"
+                        class="bg-zinc-900 border border-zinc-800 text-xs text-green-400 rounded px-2 py-1 focus:outline-none">
+                    </select>
+                    <button onclick="stopCurrentServer()" class="text-red-400 hover:text-red-300 text-[10px]">Stop</button>
                 </div>
             </div>
 
@@ -541,13 +653,13 @@
                         </svg>
                         Diff
                     </button>
-                    <button onclick="generateReadme()" class="git-btn">
+                    <button onclick="generateSmartReadme()" class="git-btn readme">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2">
                             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
                             <polyline points="14 2 14 8 20 8"></polyline>
                         </svg>
-                        README
+                        README IA
                     </button>
                 </div>
 
@@ -655,6 +767,10 @@
         let currentTab = 'all';
         let autopilot = true;
         let totalTokens = 0;
+        let currentIntent = null;
+        let currentLoop = 0;
+        let maxLoops = 5;
+        let activeServerPort = null;
 
         // DOM
         const terminal = document.getElementById('terminal');
@@ -666,6 +782,45 @@
         const loadingOverlay = document.getElementById('loading-overlay');
         const loadingText = document.getElementById('loading-text');
         const tokenCount = document.getElementById('token-count');
+        const intentBadge = document.getElementById('intent-badge');
+        const intentIcon = document.getElementById('intent-icon');
+        const intentText = document.getElementById('intent-text');
+        const loopCounter = document.getElementById('loop-counter');
+        const loopText = document.getElementById('loop-text');
+
+        // ═══════════════════════════════════════════════════════════════════
+        // INTENT DISPLAY
+        // ═══════════════════════════════════════════════════════════════════
+
+        function setIntent(intent) {
+            currentIntent = intent;
+            intentBadge.classList.add('visible');
+
+            if (intent === 'CHAT') {
+                intentBadge.className = 'intent-badge visible flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium badge-chat';
+                intentIcon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>';
+                intentText.textContent = 'CHAT';
+            } else if (intent === 'DEV') {
+                intentBadge.className = 'intent-badge visible flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium badge-coder';
+                intentIcon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>';
+                intentText.textContent = 'DEV';
+            } else if (intent === 'README') {
+                intentBadge.className = 'intent-badge visible flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium badge-readme';
+                intentIcon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path></svg>';
+                intentText.textContent = 'README';
+            }
+        }
+
+        function setLoopCounter(iteration, max) {
+            currentLoop = iteration;
+            maxLoops = max;
+            loopCounter.classList.remove('hidden');
+            loopText.textContent = `Loop ${iteration}/${max}`;
+        }
+
+        function hideLoopCounter() {
+            loopCounter.classList.add('hidden');
+        }
 
         // ═══════════════════════════════════════════════════════════════════
         // TERMINAL OUTPUT
@@ -679,8 +834,11 @@
             let badge = '';
             if (agent === 'boss') badge = '<span class="badge-boss text-[9px] px-1.5 py-0.5 rounded mr-2">BOSS</span>';
             else if (agent === 'coder') badge = '<span class="badge-coder text-[9px] px-1.5 py-0.5 rounded mr-2">CODER</span>';
-            else if (agent === 'reviewer') badge = '<span class="badge-reviewer text-[9px] px-1.5 py-0.5 rounded mr-2">REVIEWER</span>';
+            else if (agent === 'reviewer') badge = '<span class="badge-reviewer text-[9px] px-1.5 py-0.5 rounded mr-2">REVIEW</span>';
             else if (agent === 'git') badge = '<span class="badge-git text-[9px] px-1.5 py-0.5 rounded mr-2">GIT</span>';
+            else if (agent === 'chat') badge = '<span class="badge-chat text-[9px] px-1.5 py-0.5 rounded mr-2">CHAT</span>';
+            else if (agent === 'readme') badge = '<span class="badge-readme text-[9px] px-1.5 py-0.5 rounded mr-2">README</span>';
+            else if (agent === 'loop') badge = '<span class="badge-loop text-[9px] px-1.5 py-0.5 rounded mr-2">LOOP</span>';
 
             line.innerHTML = badge + formatContent(content);
             terminal.appendChild(line);
@@ -690,9 +848,9 @@
         }
 
         function addToolLine(agent, tool, success, details = '') {
-            const icon = success ? '✓' : '✗';
+            const icon = success ? '>' : 'X';
             const color = success ? 'text-reviewer' : 'text-red-400';
-            const content = `<span class="${color}">${icon}</span> <span class="text-zinc-500">${tool}</span> ${details ? `<span class="text-zinc-600">→ ${truncate(details, 40)}</span>` : ''}`;
+            const content = `<span class="${color}">${icon}</span> <span class="text-zinc-500">${tool}</span> ${details ? `<span class="text-zinc-600">-> ${truncate(details, 40)}</span>` : ''}`;
             addTerminalLine(agent, content, success ? 'success' : 'error');
         }
 
@@ -707,8 +865,10 @@
                 .replace(/\[REVIEW\]/g, '<span class="text-reviewer-light font-medium">[REVIEW]</span>')
                 .replace(/\[CHECKLIST\]/g, '<span class="text-reviewer-light font-medium">[CHECKLIST]</span>')
                 .replace(/\[VERDICT\]/g, '<span class="text-reviewer-light font-medium">[VERDICT]</span>')
-                .replace(/\[x\]/g, '<span class="text-reviewer">✓</span>')
-                .replace(/\[ \]/g, '<span class="text-zinc-600">○</span>')
+                .replace(/APPROUVE/g, '<span class="text-green-400 font-medium">APPROUVE</span>')
+                .replace(/CORRECTIONS/g, '<span class="text-red-400 font-medium">CORRECTIONS</span>')
+                .replace(/\[x\]/g, '<span class="text-reviewer">OK</span>')
+                .replace(/\[ \]/g, '<span class="text-zinc-600">-</span>')
                 .replace(/`([^`]+)`/g, '<code class="bg-zinc-800 px-1 rounded text-[11px]">$1</code>')
                 .replace(/\n/g, '<br>');
         }
@@ -722,16 +882,27 @@
         // ═══════════════════════════════════════════════════════════════════
 
         function setPhase(phase) {
-            ['boss', 'coder', 'reviewer', 'git'].forEach(p => {
+            ['chat', 'boss', 'coder', 'reviewer', 'git', 'readme'].forEach(p => {
                 const el = document.getElementById(`phase-${p}`);
-                el.classList.remove('active', 'text-white');
-                el.querySelector('span').classList.remove('pulse');
-                if (p === phase.toLowerCase()) {
-                    el.classList.add('active', 'text-white');
-                    el.querySelector('span').classList.add('pulse');
-                    el.style.color = p === 'boss' ? '#a78bfa' : p === 'coder' ? '#fbbf24' : p === 'reviewer' ? '#34d399' : '#f87171';
-                } else {
-                    el.style.color = '';
+                if (el) {
+                    el.classList.remove('active', 'text-white');
+                    const dot = el.querySelector('span');
+                    if (dot) dot.classList.remove('pulse');
+                    if (p === phase.toLowerCase()) {
+                        el.classList.add('active', 'text-white');
+                        if (dot) dot.classList.add('pulse');
+                        const colors = {
+                            chat: '#22d3ee',
+                            boss: '#a78bfa',
+                            coder: '#fbbf24',
+                            reviewer: '#34d399',
+                            git: '#f87171',
+                            readme: '#f472b6'
+                        };
+                        el.style.color = colors[p] || '';
+                    } else {
+                        el.style.color = '';
+                    }
                 }
             });
             loadingText.textContent = phase + '...';
@@ -744,7 +915,7 @@
         function switchTab(tab) {
             currentTab = tab;
             document.querySelectorAll('.tab').forEach(t => {
-                t.classList.remove('active-boss', 'active-coder', 'active-reviewer');
+                t.classList.remove('active-boss', 'active-coder', 'active-reviewer', 'active-chat');
                 t.classList.add('text-zinc-500');
             });
             const activeTab = document.getElementById(`tab-${tab}`);
@@ -806,6 +977,10 @@
             loadingOverlay.classList.remove('hidden');
             loadingOverlay.style.display = 'flex';
 
+            // Reset intent and loop
+            intentBadge.classList.remove('visible');
+            hideLoopCounter();
+
             try {
                 const response = await fetch('/chat', {
                     method: 'POST',
@@ -847,6 +1022,26 @@
 
         function handleEvent(event) {
             switch (event.type) {
+                case 'intent':
+                    setIntent(event.intent);
+                    addTerminalLine('', `<span class="text-zinc-500">Mode: ${event.intent}</span>`, '');
+                    break;
+
+                case 'loop_start':
+                    setLoopCounter(event.iteration, event.max);
+                    addTerminalLine('loop', `=== Boucle ${event.iteration}/${event.max} ===`, 'loop');
+                    break;
+
+                case 'loop_end':
+                    if (event.status === 'SUCCESS') {
+                        addTerminalLine('loop', `<span class="text-green-400">Boucle ${event.iteration} terminee avec succes</span>`, 'success');
+                    } else if (event.status === 'RETRY') {
+                        addTerminalLine('loop', `<span class="text-yellow-400">Retry: ${event.reason || 'Correction necessaire'}</span>`, 'loop');
+                    } else if (event.status === 'MAX_REACHED') {
+                        addTerminalLine('loop', `<span class="text-red-400">Limite de boucles atteinte</span>`, 'error');
+                    }
+                    break;
+
                 case 'phase':
                     setPhase(event.phase);
                     addTerminalLine(event.phase.toLowerCase(), `<span class="text-zinc-400">--- ${event.phase}: ${event.status} ---</span>`, '');
@@ -857,7 +1052,7 @@
                     break;
 
                 case 'tool_result':
-                    const detail = event.result.filename || event.result.message || '';
+                    const detail = event.result.filename || event.result.message || event.result.msg || '';
                     addToolLine(event.agent, event.tool, event.success, detail);
                     break;
 
@@ -865,16 +1060,27 @@
                     break;
 
                 case 'complete':
-                    if (event.preview) {
+                    hideLoopCounter();
+
+                    // Handle server preview
+                    if (event.server && event.server.port) {
+                        loadServerPreview(event.server.port);
+                    } else if (event.preview) {
                         loadPreview(event.preview);
                     }
-                    addTerminalLine('', '<span class="text-reviewer">✓ Tache terminee</span>', 'success');
+
+                    // Show completion message
+                    let completeMsg = 'Tache terminee';
+                    if (event.loops && event.loops > 1) {
+                        completeMsg += ` (${event.loops} iterations)`;
+                    }
+                    addTerminalLine('', `<span class="text-reviewer">> ${completeMsg}</span>`, 'success');
                     break;
             }
         }
 
         // ═══════════════════════════════════════════════════════════════════
-        // PREVIEW
+        // PREVIEW & SERVER MANAGEMENT
         // ═══════════════════════════════════════════════════════════════════
 
         function loadPreview(filename) {
@@ -884,10 +1090,66 @@
             previewFrame.src = url;
         }
 
+        function loadServerPreview(port) {
+            const url = `http://localhost:${port}`;
+            urlDisplay.value = url;
+            emptyState.classList.add('hidden');
+            previewFrame.src = url;
+            activeServerPort = port;
+            updateServerSelector();
+        }
+
         function refreshPreview() {
             if (previewFrame.src && previewFrame.src !== 'about:blank') {
                 previewFrame.src = previewFrame.src.split('?')[0] + '?t=' + Date.now();
             }
+        }
+
+        async function updateServerSelector() {
+            try {
+                const res = await fetch('/servers');
+                const data = await res.json();
+                const selector = document.getElementById('server-selector');
+                const portSelect = document.getElementById('server-port');
+
+                if (data.servers && data.servers.length > 0) {
+                    selector.classList.remove('hidden');
+                    portSelect.innerHTML = data.servers.map(s =>
+                        `<option value="${s.port}" ${s.port === activeServerPort ? 'selected' : ''}>${s.port}${s.running ? '' : ' (stopped)'}</option>`
+                    ).join('');
+                } else {
+                    selector.classList.add('hidden');
+                }
+            } catch (e) { }
+        }
+
+        function changeServerPort() {
+            const port = document.getElementById('server-port').value;
+            loadServerPreview(parseInt(port));
+        }
+
+        async function stopCurrentServer() {
+            if (activeServerPort) {
+                await fetch('/servers/stop', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ port: activeServerPort })
+                });
+                addTerminalLine('', `<span class="text-zinc-500">Serveur arrete sur port ${activeServerPort}</span>`, '');
+                activeServerPort = null;
+                updateServerSelector();
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // README GENERATION
+        // ═══════════════════════════════════════════════════════════════════
+
+        async function generateSmartReadme() {
+            if (isProcessing) return;
+
+            userInput.value = 'Genere un README.md complet pour ce projet';
+            sendMessage();
         }
 
         // ═══════════════════════════════════════════════════════════════════
@@ -948,11 +1210,11 @@
                 });
                 const data = await res.json();
                 if (data.success) {
-                    showGitResult(`✓ Commit: ${data.message}`, true);
+                    showGitResult(`> Commit: ${data.message}`, true);
                     document.getElementById('commit-message').value = '';
                     addTerminalLine('git', `Commit: ${data.message}`, 'success');
                 } else {
-                    showGitResult(`✗ ${data.error}`, false);
+                    showGitResult(`X ${data.error}`, false);
                 }
                 refreshGitStatus();
                 refreshGitLog();
@@ -966,10 +1228,10 @@
                 const res = await fetch('/git/push', { method: 'POST' });
                 const data = await res.json();
                 if (data.success) {
-                    showGitResult('✓ Push reussi', true);
+                    showGitResult('> Push reussi', true);
                     addTerminalLine('git', 'Push vers origin', 'success');
                 } else {
-                    showGitResult(`✗ ${data.output}`, false);
+                    showGitResult(`X ${data.output}`, false);
                 }
             } catch (e) {
                 showGitResult('Erreur de connexion', false);
@@ -981,10 +1243,10 @@
                 const res = await fetch('/git/pull', { method: 'POST' });
                 const data = await res.json();
                 if (data.success) {
-                    showGitResult('✓ Pull reussi', true);
+                    showGitResult('> Pull reussi', true);
                     addTerminalLine('git', 'Pull depuis origin', 'success');
                 } else {
-                    showGitResult(`✗ ${data.output}`, false);
+                    showGitResult(`X ${data.output}`, false);
                 }
             } catch (e) {
                 showGitResult('Erreur de connexion', false);
@@ -999,22 +1261,6 @@
                 el.textContent = data.diff || 'Aucun changement';
             } catch (e) {
                 el.textContent = 'Erreur';
-            }
-        }
-
-        async function generateReadme() {
-            try {
-                const res = await fetch('/readme/generate', { method: 'POST' });
-                const data = await res.json();
-                if (data.success) {
-                    showGitResult('✓ README.md genere', true);
-                    addTerminalLine('git', 'README.md genere', 'success');
-                    refreshGitStatus();
-                } else {
-                    showGitResult('✗ Erreur', false);
-                }
-            } catch (e) {
-                showGitResult('Erreur de connexion', false);
             }
         }
 
@@ -1033,13 +1279,13 @@
                 const data = await res.json();
 
                 if (data.success) {
-                    showGitResult(`✓ ${data.message}`, true);
+                    showGitResult(`> ${data.message}`, true);
                     addTerminalLine('git', `Repo GitHub cree: ${data.url || data.message}`, 'success');
                     document.getElementById('repo-name').value = '';
                     refreshGitStatus();
                     refreshGitLog();
                 } else {
-                    showGitResult(`✗ ${data.error}`, false);
+                    showGitResult(`X ${data.error}`, false);
                     addTerminalLine('git', `Erreur: ${data.error}`, 'error');
                 }
             } catch (e) {
@@ -1066,12 +1312,15 @@
         async function resetAll() {
             if (!confirm('Reinitialiser?')) return;
             await fetch('/reset', { method: 'POST' });
-            terminal.innerHTML = '<div class="terminal-line py-1.5 text-zinc-500 fade-in">ORBIT reinitialise.</div>';
+            terminal.innerHTML = '<div class="terminal-line py-1.5 text-zinc-500 fade-in">ORBIT v3 reinitialise.</div>';
             previewFrame.src = 'about:blank';
             urlDisplay.value = 'about:blank';
             emptyState.classList.remove('hidden');
             totalTokens = 0;
             tokenCount.textContent = '0';
+            intentBadge.classList.remove('visible');
+            hideLoopCounter();
+            updateServerSelector();
         }
 
         // Close modal on outside click
@@ -1112,7 +1361,7 @@
                 }
 
                 el.innerHTML = data.projects.map(p => `
-                    <button onclick="selectProject('${p.name}')" 
+                    <button onclick="selectProject('${p.name}')"
                         class="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-zinc-800 transition-all text-left ${p.is_current ? 'bg-blue-900/30 border border-blue-700' : ''}">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2" class="${p.is_current ? 'text-blue-400' : 'text-zinc-600'}">
@@ -1151,7 +1400,7 @@
                 const data = await res.json();
 
                 if (data.success) {
-                    showProjectResult(`✓ ${data.message}`, true);
+                    showProjectResult(`> ${data.message}`, true);
                     document.getElementById('new-project-name').value = '';
                     loadProjects();
                     addTerminalLine('', `Projet cree: ${name}`, 'success');
@@ -1160,7 +1409,7 @@
                     urlDisplay.value = 'about:blank';
                     emptyState.classList.remove('hidden');
                 } else {
-                    showProjectResult(`✗ ${data.error}`, false);
+                    showProjectResult(`X ${data.error}`, false);
                 }
             } catch (e) {
                 showProjectResult('Erreur de connexion', false);
@@ -1177,7 +1426,7 @@
                 const data = await res.json();
 
                 if (data.success) {
-                    showProjectResult(`✓ ${data.message}`, true);
+                    showProjectResult(`> ${data.message}`, true);
                     loadProjects();
                     addTerminalLine('', `Projet selectionne: ${name}`, 'success');
                     closeProjectModal();
@@ -1186,7 +1435,7 @@
                     urlDisplay.value = 'about:blank';
                     emptyState.classList.remove('hidden');
                 } else {
-                    showProjectResult(`✗ ${data.error}`, false);
+                    showProjectResult(`X ${data.error}`, false);
                 }
             } catch (e) {
                 showProjectResult('Erreur de connexion', false);
@@ -1213,6 +1462,7 @@
         userInput.focus();
         loadUsage();
         loadCurrentProject();
+        updateServerSelector();
     </script>
 </body>
 
