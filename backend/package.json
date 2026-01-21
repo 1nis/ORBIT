@@ -1,0 +1,17 @@
+{
+  "name": "subscription-manager-backend",
+  "version": "1.0.0",
+  "description": "Backend API pour l'analyse d'abonnements",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "multer": "^1.4.5-lts.1",
+    "csv-parser": "^3.0.0",
+    "pdf-parse": "^1.1.1"
+  }
+}

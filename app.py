@@ -1,35 +1,198 @@
 """
 ORBIT - Multi-Agent Development Studio
 Architecture: BOSS (Planning) → CODER (Execution) → REVIEWER (Validation)
+
+Version: 2.0 - Production Ready
+Améliorations:
+- Configuration centralisée via .env
+- Persistance de la mémoire (orbit_memory.json)
+- Vérification des dépendances (git, gh) au démarrage
+- Sécurisation des commandes (liste noire)
+- Logs clairs dans la console
 """
 
 import os
+import sys
 import json
+import shutil
 import subprocess
-import time
+import logging
 from datetime import datetime
+from typing import Optional, Dict, List, Any, Generator
+
 from flask import Flask, render_template, request, jsonify, send_from_directory, Response
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# INITIALISATION ET CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Charger les variables d'environnement
 load_dotenv()
 
-app = Flask(__name__)
-client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+# Configuration du logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s | %(levelname)s | %(message)s',
+    datefmt='%H:%M:%S'
+)
+logger = logging.getLogger("ORBIT")
 
-# Project management
-PROJECTS_ROOT = r"C:\Users\elpip\Desktop\Projets"
+# Chemin par défaut pour les projets (portable via .env ou dossier utilisateur)
+DEFAULT_PROJECTS_ROOT = os.path.join(os.path.expanduser("~"), "Orbit_Projects")
+
+# Configuration centralisée depuis .env
+class Config:
+    """Configuration centralisée - toutes les valeurs viennent du .env ou ont des défauts."""
+    
+    # API
+    ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
+    
+    # Modèle IA (configurable via .env)
+    DEFAULT_MODEL: str = os.getenv("ORBIT_MODEL", "claude-sonnet-4-5-20250929")
+    OPUS_MODEL: str = os.getenv("ORBIT_OPUS_MODEL", "claude-opus-4-20250514")
+    
+    # Chemins (portables)
+    PROJECTS_ROOT: str = os.getenv("PROJECTS_ROOT", DEFAULT_PROJECTS_ROOT)
+    
+    # Fichier de persistance mémoire
+    MEMORY_FILE: str = os.getenv("ORBIT_MEMORY_FILE", "orbit_memory.json")
+    
+    # Paramètres de fonctionnement
+    MAX_TOKENS: int = int(os.getenv("ORBIT_MAX_TOKENS", "8192"))
+    COMMAND_TIMEOUT: int = int(os.getenv("ORBIT_COMMAND_TIMEOUT", "60"))
+    
+    @classmethod
+    def validate(cls) -> bool:
+        """Valide que la configuration minimale est présente."""
+        if not cls.ANTHROPIC_API_KEY:
+            logger.error("❌ ANTHROPIC_API_KEY manquante dans le fichier .env")
+            return False
+        return True
+
+# Vérifier la configuration
+if not Config.validate():
+    logger.error("Configuration invalide. Vérifiez votre fichier .env")
+    # On ne quitte pas pour permettre le debug
+
+# Créer le dossier des projets s'il n'existe pas
+if not os.path.exists(Config.PROJECTS_ROOT):
+    os.makedirs(Config.PROJECTS_ROOT, exist_ok=True)
+    logger.info(f"📁 Dossier projets créé: {Config.PROJECTS_ROOT}")
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VÉRIFICATION DES DÉPENDANCES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class SystemHealth:
+    """Vérifie la disponibilité des outils système."""
+    
+    git_available: bool = False
+    gh_available: bool = False
+    
+    @classmethod
+    def check_all(cls) -> None:
+        """Vérifie toutes les dépendances au démarrage."""
+        logger.info("🔍 Vérification des dépendances système...")
+        
+        # Vérifier Git
+        cls.git_available = shutil.which("git") is not None
+        if cls.git_available:
+            logger.info("  ✓ Git: disponible")
+        else:
+            logger.warning("  ✗ Git: non installé - fonctions Git désactivées")
+        
+        # Vérifier GitHub CLI
+        cls.gh_available = shutil.which("gh") is not None
+        if cls.gh_available:
+            logger.info("  ✓ GitHub CLI (gh): disponible")
+        else:
+            logger.warning("  ✗ GitHub CLI (gh): non installé - création de repos GitHub désactivée")
+    
+    @classmethod
+    def require_git(cls) -> Dict[str, Any]:
+        """Retourne une erreur si Git n'est pas disponible."""
+        if not cls.git_available:
+            return {"success": False, "error": "Git n'est pas installé sur ce système"}
+        return None
+    
+    @classmethod
+    def require_gh(cls) -> Dict[str, Any]:
+        """Retourne une erreur si gh n'est pas disponible."""
+        if not cls.gh_available:
+            return {"success": False, "error": "GitHub CLI (gh) n'est pas installé. Installez-le via: winget install GitHub.cli"}
+        return None
+
+# Vérifier les dépendances au chargement du module
+SystemHealth.check_all()
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SÉCURITÉ - LISTE NOIRE DES COMMANDES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Patterns de commandes dangereuses à bloquer
+DANGEROUS_PATTERNS = [
+    # Suppression système
+    "rm -rf /", "rm -rf /*", "del /s /q c:\\", "format c:",
+    "rd /s /q c:\\", "remove-item -recurse -force c:\\",
+    # Manipulation système
+    "shutdown", "restart-computer", "stop-computer",
+    # Registre Windows
+    "reg delete", "remove-itemproperty",
+    # Téléchargements malveillants
+    "invoke-webrequest", "wget", "curl -o",
+    # Exécution de scripts distants
+    "iex(", "invoke-expression", "downloadstring",
+    # Destruction de données
+    "cipher /w:", "sdelete",
+]
+
+def is_command_safe(command: str) -> tuple[bool, str]:
+    """
+    Vérifie si une commande est sûre à exécuter.
+    Retourne (is_safe, reason_if_blocked).
+    """
+    cmd_lower = command.lower().strip()
+    
+    for pattern in DANGEROUS_PATTERNS:
+        if pattern.lower() in cmd_lower:
+            return False, f"Commande bloquée: contient '{pattern}'"
+    
+    # Bloquer les chemins système critiques
+    critical_paths = ["c:\\windows", "c:\\program files", "system32", "$env:systemroot"]
+    for path in critical_paths:
+        if path.lower() in cmd_lower and ("remove" in cmd_lower or "del " in cmd_lower or "rd " in cmd_lower):
+            return False, f"Commande bloquée: modification de chemin système '{path}'"
+    
+    return True, ""
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# APPLICATION FLASK
+# ═══════════════════════════════════════════════════════════════════════════════
+
+app = Flask(__name__)
+
+# Client Anthropic
+try:
+    client = Anthropic(api_key=Config.ANTHROPIC_API_KEY)
+    logger.info("✓ Client Anthropic initialisé")
+except Exception as e:
+    logger.error(f"❌ Erreur initialisation Anthropic: {e}")
+    client = None
+
+# Workspace courant (modifiable dynamiquement)
 WORKSPACE_DIR = os.getcwd()
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CONFIGURATION
+# CONFIGURATION DYNAMIQUE
 # ═══════════════════════════════════════════════════════════════════════════════
 
 CONFIG = {
     "models": {
-        "boss": "claude-sonnet-4-5-20250929",
-        "coder": "claude-sonnet-4-5-20250929",
-        "reviewer": "claude-sonnet-4-5-20250929"
+        "boss": Config.DEFAULT_MODEL,
+        "coder": Config.DEFAULT_MODEL,
+        "reviewer": Config.DEFAULT_MODEL
     },
     "autopilot": True,
     "max_iterations": 15,
@@ -43,7 +206,97 @@ USAGE_STATS = {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TOOLS DEFINITION
+# SYSTÈME DE PERSISTANCE (MÉMOIRE)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class MemoryManager:
+    """Gère la persistance de l'historique des conversations."""
+    
+    def __init__(self, memory_file: str = None):
+        self.memory_file = memory_file or Config.MEMORY_FILE
+        self._ensure_memory_dir()
+    
+    def _ensure_memory_dir(self) -> None:
+        """S'assure que le dossier de mémoire existe."""
+        memory_dir = os.path.dirname(self.memory_file)
+        if memory_dir and not os.path.exists(memory_dir):
+            os.makedirs(memory_dir, exist_ok=True)
+    
+    def _get_memory_path(self) -> str:
+        """Retourne le chemin complet du fichier mémoire pour le projet courant."""
+        global WORKSPACE_DIR
+        return os.path.join(WORKSPACE_DIR, self.memory_file)
+    
+    def save(self, orchestrator: 'AgentOrchestrator') -> bool:
+        """Sauvegarde l'état de l'orchestrateur."""
+        try:
+            memory_path = self._get_memory_path()
+            data = {
+                "saved_at": datetime.now().isoformat(),
+                "workspace": WORKSPACE_DIR,
+                "conversation_boss": orchestrator.conversation_boss,
+                "conversation_coder": orchestrator.conversation_coder,
+                "conversation_reviewer": orchestrator.conversation_reviewer,
+                "created_files": orchestrator.created_files,
+                "usage_stats": USAGE_STATS
+            }
+            
+            with open(memory_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+            
+            logger.info(f"💾 Mémoire sauvegardée: {memory_path}")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Erreur sauvegarde mémoire: {e}")
+            return False
+    
+    def load(self, orchestrator: 'AgentOrchestrator') -> bool:
+        """Charge l'état depuis le fichier mémoire."""
+        try:
+            memory_path = self._get_memory_path()
+            
+            if not os.path.exists(memory_path):
+                logger.info("📝 Aucune mémoire précédente trouvée - nouvelle session")
+                return False
+            
+            with open(memory_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            
+            # Restaurer les conversations
+            orchestrator.conversation_boss = data.get("conversation_boss", [])
+            orchestrator.conversation_coder = data.get("conversation_coder", [])
+            orchestrator.conversation_reviewer = data.get("conversation_reviewer", [])
+            orchestrator.created_files = data.get("created_files", [])
+            
+            # Restaurer les stats d'usage
+            global USAGE_STATS
+            if "usage_stats" in data:
+                USAGE_STATS.update(data["usage_stats"])
+            
+            saved_at = data.get("saved_at", "date inconnue")
+            logger.info(f"🧠 Mémoire restaurée depuis: {saved_at}")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Erreur chargement mémoire: {e}")
+            return False
+    
+    def clear(self) -> bool:
+        """Efface le fichier mémoire."""
+        try:
+            memory_path = self._get_memory_path()
+            if os.path.exists(memory_path):
+                os.remove(memory_path)
+                logger.info("🗑️ Mémoire effacée")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Erreur effacement mémoire: {e}")
+            return False
+
+# Instance globale du gestionnaire de mémoire
+memory_manager = MemoryManager()
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# OUTILS (TOOLS) POUR LES AGENTS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 TOOLS = [
@@ -72,7 +325,7 @@ TOOLS = [
     },
     {
         "name": "run_command",
-        "description": "Execute une commande PowerShell. Retourne stdout/stderr.",
+        "description": "Execute une commande PowerShell. Retourne stdout/stderr. Certaines commandes dangereuses sont bloquées.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -124,16 +377,20 @@ TOOLS = [
 ]
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TOOL EXECUTION ENGINE
+# MOTEUR D'EXÉCUTION DES OUTILS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def execute_tool(name: str, args: dict) -> dict:
-    """Execute a tool and return structured result."""
+    """Exécute un outil et retourne le résultat structuré."""
+    global WORKSPACE_DIR
+    
+    logger.info(f"🔧 Exécution outil: {name}")
+    
     try:
         if name == "read_file":
             path = os.path.join(WORKSPACE_DIR, args["filename"])
             if not os.path.exists(path):
-                return {"success": False, "error": f"Fichier non trouve: {args['filename']}"}
+                return {"success": False, "error": f"Fichier non trouvé: {args['filename']}"}
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
             return {"success": True, "content": content[:5000], "size": len(content)}
@@ -145,12 +402,22 @@ def execute_tool(name: str, args: dict) -> dict:
                 os.makedirs(parent_dir, exist_ok=True)
             with open(path, "w", encoding="utf-8") as f:
                 f.write(args["content"])
-            return {"success": True, "message": f"Fichier cree: {args['filename']}", "filename": args["filename"]}
+            logger.info(f"  📝 Fichier créé: {args['filename']}")
+            return {"success": True, "message": f"Fichier créé: {args['filename']}", "filename": args["filename"]}
 
         elif name == "run_command":
+            command = args["command"]
+            
+            # Vérification de sécurité
+            is_safe, reason = is_command_safe(command)
+            if not is_safe:
+                logger.warning(f"  ⚠️ {reason}")
+                return {"success": False, "error": reason}
+            
             result = subprocess.run(
-                ["powershell", "-Command", args["command"]],
-                capture_output=True, text=True, cwd=WORKSPACE_DIR, timeout=60
+                ["powershell", "-Command", command],
+                capture_output=True, text=True, cwd=WORKSPACE_DIR, 
+                timeout=Config.COMMAND_TIMEOUT
             )
             return {
                 "success": result.returncode == 0,
@@ -162,7 +429,7 @@ def execute_tool(name: str, args: dict) -> dict:
         elif name == "list_files":
             path = os.path.join(WORKSPACE_DIR, args.get("directory", "."))
             if not os.path.exists(path):
-                return {"success": False, "error": f"Dossier non trouve: {path}"}
+                return {"success": False, "error": f"Dossier non trouvé: {path}"}
             items = []
             for item in os.listdir(path):
                 if not item.startswith('.') and item not in ['__pycache__', 'venv', 'node_modules']:
@@ -171,16 +438,26 @@ def execute_tool(name: str, args: dict) -> dict:
             return {"success": True, "items": items}
 
         elif name == "git_commit":
+            # Vérifier que Git est disponible
+            check = SystemHealth.require_git()
+            if check:
+                return check
+            
             subprocess.run(["powershell", "-Command", "git add -A"], cwd=WORKSPACE_DIR, capture_output=True)
             result = subprocess.run(
                 ["powershell", "-Command", f'git commit -m "{args["message"]}"'],
                 capture_output=True, text=True, cwd=WORKSPACE_DIR
             )
             if result.returncode == 0 or "nothing to commit" in (result.stdout + result.stderr).lower():
+                logger.info(f"  ✓ Commit: {args['message']}")
                 return {"success": True, "message": f"Commit: {args['message']}"}
             return {"success": False, "error": result.stderr or result.stdout}
 
         elif name == "git_push":
+            check = SystemHealth.require_git()
+            if check:
+                return check
+            
             result = subprocess.run(
                 ["powershell", "-Command", "git push"],
                 capture_output=True, text=True, cwd=WORKSPACE_DIR
@@ -188,6 +465,10 @@ def execute_tool(name: str, args: dict) -> dict:
             return {"success": result.returncode == 0, "output": result.stdout or result.stderr}
 
         elif name == "git_diff":
+            check = SystemHealth.require_git()
+            if check:
+                return check
+            
             result = subprocess.run(
                 ["powershell", "-Command", "git diff --stat"],
                 capture_output=True, text=True, cwd=WORKSPACE_DIR
@@ -197,12 +478,14 @@ def execute_tool(name: str, args: dict) -> dict:
         return {"success": False, "error": f"Outil inconnu: {name}"}
 
     except subprocess.TimeoutExpired:
-        return {"success": False, "error": "Timeout (>60s)"}
+        logger.error(f"  ⏱️ Timeout pour {name}")
+        return {"success": False, "error": f"Timeout (>{Config.COMMAND_TIMEOUT}s)"}
     except Exception as e:
+        logger.error(f"  ❌ Erreur {name}: {e}")
         return {"success": False, "error": str(e)}
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# AGENT SYSTEM PROMPTS
+# PROMPTS SYSTÈME DES AGENTS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 BOSS_PROMPT = """Tu es le BOSS de l'equipe de developpement.
@@ -294,26 +577,30 @@ APPROUVE ou CORRECTIONS_REQUISES
 Liste des corrections a apporter"""
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# MULTI-AGENT ORCHESTRATOR
+# ORCHESTRATEUR MULTI-AGENTS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class AgentOrchestrator:
-    def __init__(self):
-        self.conversation_boss = []
-        self.conversation_coder = []
-        self.conversation_reviewer = []
-        self.created_files = []
-        self.current_agent = "boss"
-        
-    def reset(self):
-        self.conversation_boss = []
-        self.conversation_coder = []
-        self.conversation_reviewer = []
-        self.created_files = []
-        self.current_agent = "boss"
+    """Orchestre les agents BOSS, CODER et REVIEWER."""
     
-    def track_usage(self, response, agent: str):
-        """Track API usage."""
+    def __init__(self):
+        self.conversation_boss: List[Dict] = []
+        self.conversation_coder: List[Dict] = []
+        self.conversation_reviewer: List[Dict] = []
+        self.created_files: List[str] = []
+        self.current_agent: str = "boss"
+        
+    def reset(self) -> None:
+        """Réinitialise toutes les conversations."""
+        self.conversation_boss = []
+        self.conversation_coder = []
+        self.conversation_reviewer = []
+        self.created_files = []
+        self.current_agent = "boss"
+        logger.info("🔄 Orchestrateur réinitialisé")
+    
+    def track_usage(self, response, agent: str) -> None:
+        """Enregistre l'utilisation de l'API."""
         if hasattr(response, 'usage'):
             USAGE_STATS["total_input_tokens"] += response.usage.input_tokens
             USAGE_STATS["total_output_tokens"] += response.usage.output_tokens
@@ -325,12 +612,15 @@ class AgentOrchestrator:
             })
     
     def call_agent(self, agent: str, messages: list, system_prompt: str):
-        """Call a specific agent."""
+        """Appelle un agent spécifique."""
+        if not client:
+            raise RuntimeError("Client Anthropic non initialisé. Vérifiez votre clé API.")
+        
         model = CONFIG["models"].get(agent, CONFIG["models"]["coder"])
         
         response = client.messages.create(
             model=model,
-            max_tokens=8192,
+            max_tokens=Config.MAX_TOKENS,
             system=system_prompt,
             messages=messages,
             tools=TOOLS
@@ -339,8 +629,8 @@ class AgentOrchestrator:
         self.track_usage(response, agent)
         return response
     
-    def process_tool_calls(self, response, conversation: list):
-        """Process tool calls and return results."""
+    def process_tool_calls(self, response, conversation: list) -> List[Dict]:
+        """Traite les appels d'outils et retourne les résultats."""
         results = []
         assistant_content = []
         
@@ -373,8 +663,9 @@ class AgentOrchestrator:
         
         return results
     
-    def run_agent_loop(self, agent: str, initial_message: str, system_prompt: str, conversation: list, max_turns: int = 5):
-        """Run an agent until it completes or reaches max turns."""
+    def run_agent_loop(self, agent: str, initial_message: str, system_prompt: str, 
+                       conversation: list, max_turns: int = 5) -> Generator:
+        """Exécute un agent jusqu'à complétion ou max_turns."""
         if not conversation or conversation[-1]["role"] != "user":
             conversation.append({"role": "user", "content": initial_message})
         
@@ -404,8 +695,9 @@ class AgentOrchestrator:
         
         yield {"type": "agent_complete", "agent": agent}
 
-    def orchestrate(self, user_message: str):
-        """Main orchestration flow: BOSS -> CODER -> REVIEWER -> BOSS (commit)"""
+    def orchestrate(self, user_message: str) -> Generator:
+        """Flux principal: BOSS -> CODER -> REVIEWER -> GIT."""
+        logger.info(f"🚀 Nouvelle demande: {user_message[:50]}...")
         
         yield {"type": "phase", "phase": "BOSS", "status": "Planning"}
         
@@ -434,8 +726,8 @@ class AgentOrchestrator:
         
         yield {"type": "phase", "phase": "REVIEWER", "status": "Reviewing"}
         
-        files_to_review = ", ".join(self.created_files) if self.created_files else "les fichiers modifies"
-        review_request = f"Verifie le travail du CODER sur: {files_to_review}"
+        files_to_review = ", ".join(self.created_files) if self.created_files else "les fichiers modifiés"
+        review_request = f"Vérifie le travail du CODER sur: {files_to_review}"
         
         self.conversation_reviewer = [{"role": "user", "content": review_request}]
         
@@ -446,13 +738,19 @@ class AgentOrchestrator:
                 reviewer_verdict = "CORRECTIONS_REQUISES"
         
         if reviewer_verdict == "APPROUVE" or CONFIG["autopilot"]:
-            yield {"type": "phase", "phase": "GIT", "status": "Committing"}
-            
-            commit_msg = f"feat: {user_message[:50]}"
-            result = execute_tool("git_commit", {"message": commit_msg})
-            
-            yield {"type": "tool_result", "agent": "boss", "tool": "git_commit", 
-                   "success": result.get("success", False), "result": result}
+            if SystemHealth.git_available:
+                yield {"type": "phase", "phase": "GIT", "status": "Committing"}
+                
+                commit_msg = f"feat: {user_message[:50]}"
+                result = execute_tool("git_commit", {"message": commit_msg})
+                
+                yield {"type": "tool_result", "agent": "boss", "tool": "git_commit", 
+                       "success": result.get("success", False), "result": result}
+            else:
+                logger.warning("⚠️ Git non disponible, commit ignoré")
+        
+        # Sauvegarder la mémoire après chaque échange
+        memory_manager.save(self)
         
         html_files = [f for f in self.created_files if f.endswith(('.html', '.htm'))]
         yield {
@@ -461,31 +759,28 @@ class AgentOrchestrator:
             "preview": html_files[0] if html_files else None
         }
 
-# Global orchestrator instance
+# Instance globale de l'orchestrateur
 orchestrator = AgentOrchestrator()
 
+# Charger la mémoire au démarrage
+memory_manager.load(orchestrator)
+
 # ═══════════════════════════════════════════════════════════════════════════════
-# GIT HELPER FUNCTIONS
+# FONCTIONS HELPER GIT
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def get_git_status():
-    """Get current git status."""
+def get_git_status() -> str:
+    """Récupère le statut Git."""
+    if not SystemHealth.git_available:
+        return ""
     result = subprocess.run(
         ["powershell", "-Command", "git status --porcelain"],
         capture_output=True, text=True, cwd=WORKSPACE_DIR
     )
     return result.stdout.strip() if result.returncode == 0 else ""
 
-def get_git_diff_summary():
-    """Get summary of changes for auto-commit message."""
-    result = subprocess.run(
-        ["powershell", "-Command", "git diff --stat HEAD"],
-        capture_output=True, text=True, cwd=WORKSPACE_DIR
-    )
-    return result.stdout.strip() if result.returncode == 0 else ""
-
-def generate_commit_message():
-    """Generate an automatic commit message based on changes."""
+def generate_commit_message() -> Optional[str]:
+    """Génère un message de commit automatique."""
     status = get_git_status()
     if not status:
         return None
@@ -508,17 +803,15 @@ def generate_commit_message():
     
     return "; ".join(parts)[:72]
 
-def generate_readme_content():
-    """Generate README content based on project files."""
+def generate_readme_content() -> str:
+    """Génère le contenu du README."""
     files = []
     for item in os.listdir(WORKSPACE_DIR):
         if not item.startswith('.') and item not in ['__pycache__', 'venv', 'node_modules', 'templates']:
             files.append(item)
     
-    # Determine project type
     has_html = any(f.endswith('.html') for f in files)
     has_py = any(f.endswith('.py') for f in files)
-    has_js = any(f.endswith('.js') for f in files)
     
     project_name = os.path.basename(WORKSPACE_DIR)
     
@@ -526,7 +819,7 @@ def generate_readme_content():
 
 ## Description
 
-Project generated with Orbit Development Studio.
+Project generated with ORBIT Development Studio.
 
 ## Files
 
@@ -546,7 +839,7 @@ Project generated with Orbit Development Studio.
     return readme
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# FLASK ROUTES
+# ROUTES FLASK
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @app.route('/')
@@ -572,16 +865,17 @@ def chat():
 @app.route('/reset', methods=['POST'])
 def reset():
     orchestrator.reset()
+    memory_manager.clear()
     return jsonify({"success": True})
 
 @app.route('/config', methods=['GET', 'POST'])
-def config():
+def config_route():
     if request.method == 'POST':
         data = request.json
         if 'autopilot' in data:
             CONFIG['autopilot'] = data['autopilot']
         if 'model' in data and data['model'] in ['opus', 'sonnet']:
-            model_name = "claude-opus-4-20250514" if data['model'] == 'opus' else "claude-sonnet-4-5-20250929"
+            model_name = Config.OPUS_MODEL if data['model'] == 'opus' else Config.DEFAULT_MODEL
             CONFIG['models']['boss'] = model_name
         return jsonify({"success": True, "config": CONFIG})
     return jsonify(CONFIG)
@@ -600,13 +894,28 @@ def list_workspace_files():
                 files.append({"name": item, "size": os.path.getsize(path)})
     return jsonify(files)
 
+@app.route('/health')
+def health():
+    """Endpoint de santé du système."""
+    return jsonify({
+        "status": "ok",
+        "git_available": SystemHealth.git_available,
+        "gh_available": SystemHealth.gh_available,
+        "workspace": WORKSPACE_DIR,
+        "projects_root": Config.PROJECTS_ROOT,
+        "model": Config.DEFAULT_MODEL
+    })
+
 # ═══════════════════════════════════════════════════════════════════════════════
-# GIT API ROUTES
+# ROUTES API GIT
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @app.route('/git/status')
-def git_status():
-    """Get git status."""
+def git_status_route():
+    check = SystemHealth.require_git()
+    if check:
+        return jsonify(check)
+    
     result = subprocess.run(
         ["powershell", "-Command", "git status --short"],
         capture_output=True, text=True, cwd=WORKSPACE_DIR
@@ -618,8 +927,11 @@ def git_status():
     })
 
 @app.route('/git/diff')
-def git_diff():
-    """Get git diff."""
+def git_diff_route():
+    check = SystemHealth.require_git()
+    if check:
+        return jsonify(check)
+    
     result = subprocess.run(
         ["powershell", "-Command", "git diff --stat"],
         capture_output=True, text=True, cwd=WORKSPACE_DIR
@@ -630,36 +942,40 @@ def git_diff():
     })
 
 @app.route('/git/commit', methods=['POST'])
-def git_commit():
-    """Commit with auto or manual message."""
+def git_commit_route():
+    check = SystemHealth.require_git()
+    if check:
+        return jsonify(check)
+    
     data = request.json or {}
     message = data.get('message', '').strip()
     
-    # Auto-generate message if not provided
     if not message:
         message = generate_commit_message()
         if not message:
-            return jsonify({"success": False, "error": "Rien a commiter"})
+            return jsonify({"success": False, "error": "Rien à commiter"})
     
-    # Stage all changes
     subprocess.run(["powershell", "-Command", "git add -A"], cwd=WORKSPACE_DIR, capture_output=True)
     
-    # Commit
     result = subprocess.run(
         ["powershell", "-Command", f'git commit -m "{message}"'],
         capture_output=True, text=True, cwd=WORKSPACE_DIR
     )
     
     if result.returncode == 0:
+        logger.info(f"✓ Commit: {message}")
         return jsonify({"success": True, "message": message})
     elif "nothing to commit" in (result.stdout + result.stderr).lower():
-        return jsonify({"success": True, "message": "Rien a commiter"})
+        return jsonify({"success": True, "message": "Rien à commiter"})
     else:
         return jsonify({"success": False, "error": result.stderr or result.stdout})
 
 @app.route('/git/push', methods=['POST'])
-def git_push():
-    """Push to remote."""
+def git_push_route():
+    check = SystemHealth.require_git()
+    if check:
+        return jsonify(check)
+    
     result = subprocess.run(
         ["powershell", "-Command", "git push"],
         capture_output=True, text=True, cwd=WORKSPACE_DIR
@@ -670,8 +986,11 @@ def git_push():
     })
 
 @app.route('/git/pull', methods=['POST'])
-def git_pull():
-    """Pull from remote."""
+def git_pull_route():
+    check = SystemHealth.require_git()
+    if check:
+        return jsonify(check)
+    
     result = subprocess.run(
         ["powershell", "-Command", "git pull"],
         capture_output=True, text=True, cwd=WORKSPACE_DIR
@@ -682,8 +1001,11 @@ def git_pull():
     })
 
 @app.route('/git/log')
-def git_log():
-    """Get recent commits."""
+def git_log_route():
+    check = SystemHealth.require_git()
+    if check:
+        return jsonify(check)
+    
     result = subprocess.run(
         ["powershell", "-Command", "git log --oneline -10"],
         capture_output=True, text=True, cwd=WORKSPACE_DIR
@@ -694,31 +1016,39 @@ def git_log():
     })
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# README GENERATION
+# GÉNÉRATION README
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @app.route('/readme/generate', methods=['POST'])
 def readme_generate():
-    """Generate README.md for the project."""
     content = generate_readme_content()
     path = os.path.join(WORKSPACE_DIR, "README.md")
     
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
     
+    logger.info("📄 README.md généré")
     return jsonify({
         "success": True,
-        "message": "README.md genere",
+        "message": "README.md généré",
         "content": content
     })
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# GITHUB REPO CREATION
+# CRÉATION DE REPO GITHUB
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @app.route('/github/create', methods=['POST'])
 def github_create():
-    """Create a GitHub repo for the current project."""
+    # Vérifier que gh est disponible
+    check = SystemHealth.require_gh()
+    if check:
+        return jsonify(check)
+    
+    check_git = SystemHealth.require_git()
+    if check_git:
+        return jsonify(check_git)
+    
     data = request.json or {}
     repo_name = data.get('name', os.path.basename(WORKSPACE_DIR))
     private = data.get('private', True)
@@ -726,7 +1056,7 @@ def github_create():
     
     visibility = "--private" if private else "--public"
     
-    # Check if repo already has a remote
+    # Vérifier si un remote existe déjà
     check_remote = subprocess.run(
         ["powershell", "-Command", "git remote get-url origin"],
         capture_output=True, text=True, cwd=WORKSPACE_DIR
@@ -735,16 +1065,16 @@ def github_create():
     if check_remote.returncode == 0 and check_remote.stdout.strip():
         return jsonify({
             "success": False,
-            "error": f"Remote origin already exists: {check_remote.stdout.strip()}"
+            "error": f"Remote origin existe déjà: {check_remote.stdout.strip()}"
         })
     
-    # Initialize git if needed
+    # Initialiser git si nécessaire
     subprocess.run(
         ["powershell", "-Command", "git init"],
         capture_output=True, cwd=WORKSPACE_DIR
     )
     
-    # Create GitHub repo using gh CLI
+    # Créer le repo via gh CLI
     result = subprocess.run(
         ["powershell", "-Command", f'gh repo create {repo_name} {visibility} --source=. --remote=origin'],
         capture_output=True, text=True, cwd=WORKSPACE_DIR
@@ -757,24 +1087,21 @@ def github_create():
         })
     
     repo_url = result.stdout.strip()
+    logger.info(f"🐙 Repo GitHub créé: {repo_name}")
     
-    # Push if requested
     if push_now:
-        # Commit all if needed
         subprocess.run(["powershell", "-Command", "git add -A"], cwd=WORKSPACE_DIR, capture_output=True)
         subprocess.run(
             ["powershell", "-Command", 'git commit -m "Initial commit" --allow-empty'],
             cwd=WORKSPACE_DIR, capture_output=True
         )
         
-        # Push
         push_result = subprocess.run(
             ["powershell", "-Command", "git push -u origin main"],
             capture_output=True, text=True, cwd=WORKSPACE_DIR
         )
         
         if push_result.returncode != 0:
-            # Try master branch
             subprocess.run(
                 ["powershell", "-Command", "git push -u origin master"],
                 capture_output=True, cwd=WORKSPACE_DIR
@@ -782,13 +1109,16 @@ def github_create():
     
     return jsonify({
         "success": True,
-        "message": f"Repo created: {repo_name}",
+        "message": f"Repo créé: {repo_name}",
         "url": repo_url
     })
 
 @app.route('/github/status')
 def github_status():
-    """Check if gh CLI is authenticated."""
+    check = SystemHealth.require_gh()
+    if check:
+        return jsonify({"authenticated": False, "output": check["error"]})
+    
     result = subprocess.run(
         ["powershell", "-Command", "gh auth status"],
         capture_output=True, text=True, cwd=WORKSPACE_DIR
@@ -799,16 +1129,16 @@ def github_status():
     })
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PROJECT MANAGEMENT
+# GESTION DES PROJETS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @app.route('/projects')
 def list_projects():
-    """List all projects in PROJECTS_ROOT."""
+    """Liste tous les projets dans PROJECTS_ROOT."""
     projects = []
-    if os.path.exists(PROJECTS_ROOT):
-        for item in os.listdir(PROJECTS_ROOT):
-            path = os.path.join(PROJECTS_ROOT, item)
+    if os.path.exists(Config.PROJECTS_ROOT):
+        for item in os.listdir(Config.PROJECTS_ROOT):
+            path = os.path.join(Config.PROJECTS_ROOT, item)
             if os.path.isdir(path) and not item.startswith('.'):
                 has_git = os.path.exists(os.path.join(path, '.git'))
                 projects.append({
@@ -821,7 +1151,7 @@ def list_projects():
 
 @app.route('/projects/create', methods=['POST'])
 def create_project():
-    """Create a new project folder."""
+    """Crée un nouveau dossier projet."""
     global WORKSPACE_DIR
     data = request.json or {}
     name = data.get('name', '').strip()
@@ -829,59 +1159,70 @@ def create_project():
     if not name:
         return jsonify({"success": False, "error": "Nom de projet requis"})
     
-    # Sanitize name
+    # Sanitizer le nom
     name = "".join(c for c in name if c.isalnum() or c in (' ', '-', '_')).strip()
     name = name.replace(' ', '_')
     
     if not name:
         return jsonify({"success": False, "error": "Nom de projet invalide"})
     
-    project_path = os.path.join(PROJECTS_ROOT, name)
+    project_path = os.path.join(Config.PROJECTS_ROOT, name)
     
     if os.path.exists(project_path):
-        return jsonify({"success": False, "error": f"Le projet '{name}' existe deja"})
+        return jsonify({"success": False, "error": f"Le projet '{name}' existe déjà"})
     
     try:
         os.makedirs(project_path)
-        subprocess.run(["powershell", "-Command", "git init"], cwd=project_path, capture_output=True)
+        if SystemHealth.git_available:
+            subprocess.run(["powershell", "-Command", "git init"], cwd=project_path, capture_output=True)
         WORKSPACE_DIR = project_path
         orchestrator.reset()
-        return jsonify({"success": True, "message": f"Projet '{name}' cree", "path": project_path})
+        logger.info(f"📁 Nouveau projet créé: {name}")
+        return jsonify({"success": True, "message": f"Projet '{name}' créé", "path": project_path})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
 @app.route('/projects/select', methods=['POST'])
 def select_project():
-    """Select an existing project."""
+    """Sélectionne un projet existant."""
     global WORKSPACE_DIR
     data = request.json or {}
     name = data.get('name', '')
     
-    project_path = os.path.join(PROJECTS_ROOT, name)
+    project_path = os.path.join(Config.PROJECTS_ROOT, name)
     
     if not os.path.exists(project_path):
         return jsonify({"success": False, "error": f"Projet '{name}' introuvable"})
     
     WORKSPACE_DIR = project_path
     orchestrator.reset()
-    return jsonify({"success": True, "message": f"Projet '{name}' selectionne", "path": project_path})
+    # Charger la mémoire du projet sélectionné
+    memory_manager.load(orchestrator)
+    logger.info(f"📂 Projet sélectionné: {name}")
+    return jsonify({"success": True, "message": f"Projet '{name}' sélectionné", "path": project_path})
 
 @app.route('/projects/current')
 def current_project():
-    """Get current project info."""
+    """Retourne les infos du projet courant."""
     return jsonify({
         "name": os.path.basename(WORKSPACE_DIR),
         "path": WORKSPACE_DIR
     })
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# MAIN
+# POINT D'ENTRÉE
 # ═══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == '__main__':
     print("\n" + "=" * 60)
-    print("  ORBIT - Development Studio")
+    print("  🛸 ORBIT - Development Studio v2.0")
     print("  -> http://127.0.0.1:5000")
     print("  Agents: BOSS | CODER | REVIEWER")
+    print("-" * 60)
+    print(f"  📁 Projets: {Config.PROJECTS_ROOT}")
+    print(f"  🤖 Modèle: {Config.DEFAULT_MODEL}")
+    print(f"  🔧 Git: {'✓' if SystemHealth.git_available else '✗'}")
+    print(f"  🐙 GitHub CLI: {'✓' if SystemHealth.gh_available else '✗'}")
     print("=" * 60 + "\n")
+    
     app.run(debug=True, port=5000, threaded=True)
