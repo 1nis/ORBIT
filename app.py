@@ -1356,6 +1356,197 @@ class AgentOrchestrator:
             conversation.append({"role": "assistant", "content": assistant_content})
         return results
 
+    # ═══════════════════════════════════════════════════════════════════════════════
+    # SMART CONTEXT INJECTION - V5 Core Feature
+    # ═══════════════════════════════════════════════════════════════════════════════
+
+    def _gather_smart_context(self, user_message: str, intent: str, force_files: list = None) -> dict:
+        """
+        Pre-charge intelligemment les fichiers pertinents AVANT d'appeler l'IA.
+
+        Args:
+            user_message: La demande utilisateur
+            intent: Le mode (DEV, README, DEBUG_VISUAL)
+            force_files: Liste de fichiers a forcer (optionnel)
+
+        Returns:
+            dict avec 'context_string', 'files_loaded', 'structure'
+        """
+        MAX_FILES = 5
+        MAX_CHARS_PER_FILE = 10000
+
+        logger.info(f"[SMART_CONTEXT] Gathering context for intent={intent}")
+
+        # ─────────────────────────────────────────────────────────────
+        # ETAPE 1: Scan rapide de la structure
+        # ─────────────────────────────────────────────────────────────
+        structure = SmartSearch.get_file_structure()
+        all_files = structure.get("structure", {}).get("files", [])
+        tech_stack = structure.get("structure", {}).get("tech", [])
+        project_name = os.path.basename(WORKSPACE_DIR)
+
+        # ─────────────────────────────────────────────────────────────
+        # ETAPE 2: Selection des fichiers pertinents
+        # ─────────────────────────────────────────────────────────────
+        relevant_files = []
+
+        if force_files:
+            # Mode force: utiliser les fichiers specifies
+            for f in force_files:
+                # Gerer les chemins relatifs et absolus
+                if os.path.isabs(f):
+                    filepath = f
+                    filename = os.path.basename(f)
+                else:
+                    filepath = os.path.join(WORKSPACE_DIR, f)
+                    filename = f
+
+                if os.path.exists(filepath) and filename not in relevant_files:
+                    relevant_files.append(filename)
+
+            # Completer avec des fichiers auto-detectes si < MAX_FILES
+            if len(relevant_files) < MAX_FILES and all_files:
+                for f in all_files:
+                    if f not in relevant_files and len(relevant_files) < MAX_FILES:
+                        relevant_files.append(f)
+        else:
+            # Mode intelligent: appel API pour selection
+            try:
+                # Filtrer les fichiers non-pertinents
+                code_extensions = {'.py', '.js', '.ts', '.jsx', '.tsx', '.html', '.css',
+                                   '.scss', '.json', '.yaml', '.yml', '.md', '.vue', '.svelte'}
+                filtered_files = [f for f in all_files
+                                  if any(f.endswith(ext) for ext in code_extensions)][:50]
+
+                if not filtered_files:
+                    filtered_files = all_files[:30]
+
+                files_list = "\n".join(f"- {f}" for f in filtered_files)
+
+                # Prompt adapte selon l'intent
+                intent_hints = {
+                    "DEV": "modification de code, creation de fonctionnalites, correction de bugs",
+                    "README": "documentation, description du projet, installation, usage",
+                    "DEBUG_VISUAL": "problemes CSS, layout, styles, interface utilisateur"
+                }
+                hint = intent_hints.get(intent, "developpement general")
+
+                response = client.messages.create(
+                    model=CONFIG["models"]["classifier"],
+                    max_tokens=200,
+                    system=f"""Tu es un expert en analyse de code.
+Pour une tache de type "{hint}", identifie les 3 a 5 fichiers les plus critiques a lire.
+
+REGLES:
+- Reponds UNIQUEMENT par un tableau JSON: ["fichier1.py", "fichier2.js"]
+- Pas d'explication, pas de texte supplementaire
+- Maximum 5 fichiers
+- Priorise les fichiers principaux (app.py, index.js, main.py, etc.)""",
+                    messages=[{
+                        "role": "user",
+                        "content": f"Demande: {user_message}\n\nFichiers disponibles:\n{files_list}"
+                    }]
+                )
+
+                # Parser la reponse JSON
+                response_text = response.content[0].text.strip()
+
+                # Nettoyer (enlever markdown si present)
+                if "```" in response_text:
+                    parts = response_text.split("```")
+                    for part in parts:
+                        if part.strip().startswith("["):
+                            response_text = part.strip()
+                            break
+                        elif part.strip().startswith("json"):
+                            response_text = part.strip()[4:].strip()
+                            break
+
+                # Trouver le JSON dans la reponse
+                start = response_text.find("[")
+                end = response_text.rfind("]") + 1
+                if start != -1 and end > start:
+                    response_text = response_text[start:end]
+
+                selected_files = json.loads(response_text)
+
+                # Valider que les fichiers existent
+                for f in selected_files:
+                    if f in all_files and f not in relevant_files:
+                        relevant_files.append(f)
+                        if len(relevant_files) >= MAX_FILES:
+                            break
+
+                logger.info(f"[SMART_CONTEXT] IA a selectionne: {relevant_files}")
+
+            except Exception as e:
+                logger.warning(f"[SMART_CONTEXT] Erreur selection IA: {e}")
+                # Fallback intelligent base sur l'intent
+                fallback_map = {
+                    "DEV": ['app.py', 'main.py', 'index.js', 'server.js', 'package.json'],
+                    "README": ['package.json', 'requirements.txt', 'app.py', 'main.py', 'setup.py'],
+                    "DEBUG_VISUAL": ['index.html', 'style.css', 'styles.css', 'app.css', 'index.js']
+                }
+                fallback = fallback_map.get(intent, ['app.py', 'main.py', 'index.js'])
+                relevant_files = [f for f in fallback if f in all_files][:MAX_FILES]
+
+        # ─────────────────────────────────────────────────────────────
+        # ETAPE 3: Lecture Python des fichiers
+        # ─────────────────────────────────────────────────────────────
+        context_parts = []
+        files_actually_loaded = []
+        total_chars = 0
+
+        for filename in relevant_files:
+            filepath = os.path.join(WORKSPACE_DIR, filename)
+            try:
+                with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+
+                # Tronquer si necessaire
+                if len(content) > MAX_CHARS_PER_FILE:
+                    content = content[:MAX_CHARS_PER_FILE] + f"\n... [TRONQUE - {len(content)} chars total]"
+
+                context_parts.append(f"""
+╔══════════════════════════════════════════════════════════════════╗
+║ FICHIER: {filename}
+╚══════════════════════════════════════════════════════════════════╝
+{content}
+""")
+                files_actually_loaded.append(filename)
+                total_chars += len(content)
+
+            except Exception as e:
+                logger.warning(f"[SMART_CONTEXT] Erreur lecture {filename}: {e}")
+
+        # ─────────────────────────────────────────────────────────────
+        # ETAPE 4: Formater le contexte final
+        # ─────────────────────────────────────────────────────────────
+        if context_parts:
+            header = f"""
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                    SMART CONTEXT - PRE-CHARGE (ORBIT V5)                     ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║ Projet: {project_name:<63} ║
+║ Fichiers charges: {len(files_actually_loaded)} ({total_chars:,} caracteres)                                  ║
+║ Technologies: {', '.join(tech_stack[:5]) if tech_stack else 'Non detectees':<53} ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+IMPORTANT: Ces fichiers sont PRE-CHARGES. Tu n'as PAS besoin d'utiliser read_file pour eux.
+"""
+            context_string = header + "\n".join(context_parts)
+        else:
+            context_string = ""
+
+        return {
+            "context_string": context_string,
+            "files_loaded": files_actually_loaded,
+            "structure": structure,
+            "project_name": project_name,
+            "tech_stack": tech_stack,
+            "total_chars": total_chars
+        }
+
     def run_agent_loop(self, agent: str, initial_message: str, system_prompt: str,
                        conversation: list, max_turns: int = 5, include_image: Dict = None) -> Generator:
         if not conversation or conversation[-1]["role"] != "user":
@@ -1445,83 +1636,163 @@ class AgentOrchestrator:
         yield {"type": "complete", "files": [], "preview": None}
 
     # ───────────────────────────────────────────────────────────────────────
-    # MODE README - Generation de documentation
+    # MODE README - V5 avec Smart Context Injection
     # ───────────────────────────────────────────────────────────────────────
 
     def handle_readme(self, user_message: str) -> Generator:
-        """Genere un README.md intelligent."""
-        logger.info(f"[README] Generation documentation...")
+        """Genere un README.md avec Smart Context - Idealement en 1 tour."""
+        logger.info(f"[README] Generation documentation V5...")
 
-        yield {"type": "phase", "phase": "README", "status": "Analyse"}
+        yield {"type": "phase", "phase": "README", "status": "Smart Context Loading"}
 
-        # Scanner le projet
-        structure = SmartSearch.get_file_structure()
-        project_name = os.path.basename(WORKSPACE_DIR)
+        # Fichiers racines critiques pour un README
+        readme_force_files = [
+            'package.json', 'requirements.txt', 'pyproject.toml', 'setup.py',
+            'Cargo.toml', 'go.mod', 'pom.xml', 'build.gradle',
+            'app.py', 'main.py', 'index.js', 'server.js', 'index.ts',
+            'index.html', 'docker-compose.yml', 'Dockerfile', 'Makefile',
+            '.env.example', 'config.json', 'settings.py'
+        ]
 
-        # Lire les fichiers cles pour comprendre le projet
-        key_files_content = ""
-        key_files = ['package.json', 'requirements.txt', 'app.py', 'index.html', 'main.py', 'server.js']
+        # Utiliser Smart Context avec fichiers forces
+        smart_ctx = self._gather_smart_context(user_message, intent="README", force_files=readme_force_files)
 
-        for filename in key_files:
-            filepath = os.path.join(WORKSPACE_DIR, filename)
-            if os.path.exists(filepath):
-                try:
-                    with open(filepath, 'r', encoding='utf-8') as f:
-                        content = f.read()[:500]
-                    key_files_content += f"\n--- {filename} ---\n{content}\n"
-                except:
-                    pass
+        yield {"type": "smart_context_loaded",
+               "files": smart_ctx["files_loaded"],
+               "chars": smart_ctx["total_chars"]}
 
-        prompt = f"""Genere un README.md professionnel pour ce projet:
+        yield {"type": "phase", "phase": "README", "status": "Generation (1 tour attendu)"}
 
-Projet: {project_name}
-Structure: {json.dumps(structure.get('structure', {}), indent=2)}
-Contenu des fichiers principaux:
-{key_files_content}
+        # PROMPT ULTRA-DIRECTIF pour action en 1 tour
+        prompt = f"""════════════════════════════════════════════════════════════════════════════════
+                         MISSION: CREER README.md
+════════════════════════════════════════════════════════════════════════════════
 
-{user_message}"""
+PROJET: {smart_ctx["project_name"]}
+TECHNOLOGIES: {', '.join(smart_ctx["tech_stack"]) if smart_ctx["tech_stack"] else 'A determiner depuis le code'}
 
-        messages = [{"role": "user", "content": prompt}]
+{smart_ctx["context_string"]}
 
-        yield {"type": "phase", "phase": "README", "status": "Redaction"}
+══════════════════════════════════════════════════════════════════════════════
+                         INSTRUCTIONS CRITIQUES
+══════════════════════════════════════════════════════════════════════════════
 
-        try:
-            response = self.call_agent("boss", messages, README_PROMPT)
+1. Tu as DEJA TOUT LE CONTEXTE ci-dessus. N'utilise PAS read_file.
 
-            readme_content = ""
-            for block in response.content:
-                if block.type == "text":
-                    readme_content += block.text
-                    yield {"type": "agent_text", "agent": "readme", "content": block.text}
+2. UTILISE IMMEDIATEMENT l'outil write_file avec:
+   - filename: "README.md"
+   - content: Le README complet en Markdown
 
-            # Sauvegarder le README
-            readme_path = os.path.join(WORKSPACE_DIR, "README.md")
-            with open(readme_path, "w", encoding="utf-8") as f:
-                f.write(readme_content)
+3. STRUCTURE OBLIGATOIRE du README:
+   # {smart_ctx["project_name"]}
 
-            self.created_files.append("README.md")
-            yield {"type": "tool_result", "agent": "readme", "tool": "write_file",
-                   "success": True, "result": {"msg": "README.md genere"}}
+   ## Description
+   [Ce que fait l'application - 2-3 phrases]
 
-        except Exception as e:
-            yield {"type": "agent_text", "agent": "readme", "content": f"Erreur: {str(e)}"}
+   ## Technologies
+   [Liste des technos detectees]
+
+   ## Installation
+   ```bash
+   [Commandes exactes d'installation]
+   ```
+
+   ## Usage
+   ```bash
+   [Comment lancer l'app]
+   ```
+
+   ## Structure du projet
+   [Arborescence principale]
+
+   ## Licence
+   [MIT ou autre si detecte]
+
+4. NE REPONDS PAS avec du texte. EXECUTE write_file MAINTENANT.
+
+DEMANDE SUPPLEMENTAIRE DE L'UTILISATEUR: {user_message if user_message else "Aucune"}
+"""
+
+        self.conversation_coder = [{"role": "user", "content": prompt}]
+
+        # Prompt systeme renforce pour forcer l'action
+        readme_system_prompt = """Tu es un generateur de documentation ULTRA-EFFICACE.
+
+REGLE ABSOLUE: Tu recois un contexte pre-charge. Tu dois IMMEDIATEMENT appeler write_file.
+- PAS de read_file (le code est deja fourni)
+- PAS de list_files (la structure est fournie)
+- PAS de bavardage ("Je vais...", "Voici...")
+- JUSTE l'appel a write_file avec le README complet
+
+Un bon README = 1 seul appel a write_file. C'est tout."""
+
+        files_generated = False
+        readme_written = False
+
+        # max_turns=10 par securite, mais devrait finir en 1
+        for event in self.run_agent_loop("coder", prompt, readme_system_prompt,
+                                         self.conversation_coder, max_turns=10):
+            yield event
+
+            if event.get("type") == "tool_result" and event.get("tool") == "write_file":
+                if event.get("success"):
+                    files_generated = True
+                    # Verifier si c'est bien le README
+                    result = event.get("result", {})
+                    if "README" in str(result).upper() or "readme" in str(result).lower():
+                        readme_written = True
+                        # On peut sortir tot si le README est ecrit
+                        break
 
         memory_manager.save(self)
-        yield {"type": "complete", "files": ["README.md"], "preview": None}
+
+        if files_generated or readme_written:
+            if "README.md" not in self.created_files:
+                self.created_files.append("README.md")
+            yield {"type": "agent_text", "agent": "readme",
+                   "content": f"\n README.md genere avec succes (Smart Context V5)"}
+            yield {"type": "complete", "files": ["README.md"], "preview": None}
+        else:
+            yield {"type": "agent_text", "agent": "readme",
+                   "content": "\n Echec: L'agent n'a pas utilise write_file. Verifiez les logs."}
+            yield {"type": "complete", "files": [], "preview": None}
 
     # ───────────────────────────────────────────────────────────────────────
-    # MODE DEBUG_VISUAL - Nouveau mode V4
+    # MODE DEBUG_VISUAL - V5 avec Smart Context pre-charge
     # ───────────────────────────────────────────────────────────────────────
 
     def handle_debug_visual(self, user_message: str, screenshot_base64: str = None, target_url: str = None) -> Generator:
-        """Mode DEBUG_VISUAL: Screenshot -> Analyse -> Fix -> Verification."""
+        """Mode DEBUG_VISUAL V5: Smart Context + Screenshot -> Analyse -> Fix."""
         logger.info(f"[DEBUG_VISUAL] {user_message[:40]}...")
 
-        yield {"type": "phase", "phase": "DEBUG_VISUAL", "status": "Initialisation"}
+        yield {"type": "phase", "phase": "DEBUG_VISUAL", "status": "Initialisation V5"}
 
-        # Determiner l'URL a capturer
+        # ─────────────────────────────────────────────────────────────
+        # ETAPE 1: Pre-charger le contexte CSS/HTML AVANT le screenshot
+        # ─────────────────────────────────────────────────────────────
+        yield {"type": "phase", "phase": "DEBUG_VISUAL", "status": "Pre-chargement CSS/HTML"}
+
+        # Fichiers visuels prioritaires
+        visual_force_files = [
+            'index.html', 'app.html', 'main.html',
+            'style.css', 'styles.css', 'app.css', 'main.css', 'global.css',
+            'index.css', 'theme.css', 'variables.css',
+            'tailwind.config.js', 'postcss.config.js',
+            'App.vue', 'App.jsx', 'App.tsx', 'App.svelte',
+            'layout.tsx', 'layout.jsx', 'page.tsx', 'page.jsx'
+        ]
+
+        smart_ctx = self._gather_smart_context(user_message, intent="DEBUG_VISUAL", force_files=visual_force_files)
+
+        if smart_ctx["files_loaded"]:
+            yield {"type": "smart_context_loaded",
+                   "files": smart_ctx["files_loaded"],
+                   "chars": smart_ctx["total_chars"]}
+
+        # ─────────────────────────────────────────────────────────────
+        # ETAPE 2: Determiner l'URL cible
+        # ─────────────────────────────────────────────────────────────
         if not target_url:
-            # Chercher un serveur actif ou utiliser localhost:3000
             servers = server_manager.list_servers()
             if servers:
                 running = [s for s in servers if s.get("running")]
@@ -1530,95 +1801,153 @@ Contenu des fichiers principaux:
             if not target_url:
                 target_url = "http://localhost:3000"
 
-        # Contexte avec memoire des bugs
+        # Consulter la memoire des bugs visuels
         bug_context = ""
         if self.known_bugs_fixes:
             similar = memory_manager.find_similar_bug(self, user_message)
             if similar:
-                bug_context = f"\n[BUG SIMILAIRE TROUVE]\nSymptome: {similar['symptom']}\nSolution: {similar['solution']}\n"
+                bug_context = f"""
+════════════════════════════════════════════════════════════════════
+ BUG SIMILAIRE DEJA RESOLU
+════════════════════════════════════════════════════════════════════
+Symptome: {similar['symptom'][:80]}...
+Solution: {similar['solution'][:80]}...
+"""
+                yield {"type": "memory_hint", "bug": similar}
 
-        debug_message = f"""PROBLEME VISUEL SIGNALE:
-{user_message}
+        # ─────────────────────────────────────────────────────────────
+        # ETAPE 3: Construire le message avec contexte pre-charge
+        # ─────────────────────────────────────────────────────────────
+        yield {"type": "phase", "phase": "DEBUG_VISUAL", "status": "Analyse & Correction"}
 
-URL cible: {target_url}
-{bug_context}
-
-INSTRUCTIONS:
-1. Prends un screenshot de {target_url}
-2. Analyse le screenshot pour identifier le probleme
-3. Trouve le code source responsable
-4. Applique la correction
-5. Prends un nouveau screenshot pour verifier"""
-
-        # Si un screenshot manuel est fourni
         if screenshot_base64:
-            debug_message = f"""SCREENSHOT MANUEL FOURNI - ANALYSE REQUISE:
+            # Screenshot manuel fourni
+            debug_message = f"""════════════════════════════════════════════════════════════════════════════════
+                    DEBUG VISUEL - SCREENSHOT MANUEL
+════════════════════════════════════════════════════════════════════════════════
+
+PROBLEME SIGNALE:
 {user_message}
 {bug_context}
 
-L'utilisateur a envoye un screenshot manuel. Analyse-le et corrige le probleme."""
+{smart_ctx["context_string"]}
 
-            yield {"type": "phase", "phase": "DEBUG_VISUAL", "status": "Analyse screenshot manuel"}
+══════════════════════════════════════════════════════════════════════════════
+                         INSTRUCTIONS
+══════════════════════════════════════════════════════════════════════════════
+
+1. Le screenshot est joint a ce message - ANALYSE-LE
+2. Le code CSS/HTML est PRE-CHARGE ci-dessus - tu n'as PAS besoin de read_file
+3. CORRELE le probleme visuel avec le code source
+4. Utilise write_file pour appliquer la correction
+5. Prends un nouveau screenshot pour verifier (si possible)
+
+AGIS MAINTENANT - Le contexte est complet."""
 
             # Analyser le screenshot fourni
             analysis = vision_engine.analyze_screenshot(screenshot_base64, user_message)
             if analysis.get("success"):
-                yield {"type": "agent_text", "agent": "debug_visual", "content": f"[ANALYSE]\n{analysis['analysis']}"}
-                debug_message += f"\n\n[ANALYSE DU SCREENSHOT]\n{analysis['analysis']}"
+                yield {"type": "agent_text", "agent": "debug_visual",
+                       "content": f"[ANALYSE INITIALE]\n{analysis['analysis'][:500]}..."}
+                debug_message += f"\n\n[PRE-ANALYSE DU SCREENSHOT]\n{analysis['analysis']}"
+
+        else:
+            # Pas de screenshot - l'agent devra en prendre un
+            debug_message = f"""════════════════════════════════════════════════════════════════════════════════
+                    DEBUG VISUEL - CAPTURE REQUISE
+════════════════════════════════════════════════════════════════════════════════
+
+PROBLEME SIGNALE:
+{user_message}
+
+URL CIBLE: {target_url}
+{bug_context}
+
+{smart_ctx["context_string"]}
+
+══════════════════════════════════════════════════════════════════════════════
+                         INSTRUCTIONS SEQUENTIELLES
+══════════════════════════════════════════════════════════════════════════════
+
+1. PRENDS un screenshot de {target_url} avec take_screenshot
+2. ANALYSE le screenshot pour identifier le probleme visuel
+3. Le code est PRE-CHARGE ci-dessus - CORRELE avec le screenshot
+4. Utilise write_file pour appliquer la correction CSS/HTML
+5. PRENDS un nouveau screenshot pour VERIFIER la correction
+
+Le contexte code est deja charge - concentre-toi sur l'analyse visuelle."""
 
         self.conversation_coder = [{"role": "user", "content": debug_message}]
 
-        # Phase 1: Capture et Analyse
-        yield {"type": "phase", "phase": "DEBUG_VISUAL", "status": "Capture & Analyse"}
-
+        # Lancer la boucle avec le screenshot si fourni
         for event in self.run_agent_loop("coder", debug_message, DEBUG_VISUAL_PROMPT,
                                          self.conversation_coder, max_turns=8,
                                          include_image={"base64": screenshot_base64} if screenshot_base64 else None):
             yield event
 
-        # Phase 2: Verification finale avec nouveau screenshot
-        yield {"type": "phase", "phase": "DEBUG_VISUAL", "status": "Verification"}
+        # ─────────────────────────────────────────────────────────────
+        # ETAPE 4: Verification finale
+        # ─────────────────────────────────────────────────────────────
+        yield {"type": "phase", "phase": "DEBUG_VISUAL", "status": "Verification finale"}
 
         if self.last_screenshot:
             verification_result = vision_engine.analyze_screenshot(
                 self.last_screenshot.get("base64", ""),
-                "Verifie si le probleme a ete resolu. Compare avec la description initiale."
+                f"Verifie si le probleme '{user_message[:50]}' a ete resolu. Compare avant/apres."
             )
             if verification_result.get("success"):
                 yield {"type": "agent_text", "agent": "debug_visual",
-                       "content": f"[VERIFICATION]\n{verification_result['analysis']}"}
+                       "content": f"\n[VERIFICATION]\n{verification_result['analysis']}"}
 
         # Sauvegarder le fix si succes
-        if not self.last_error:
-            memory_manager.add_bug_fix(self, user_message[:100], "Fix applique via DEBUG_VISUAL")
+        if not self.last_error and self.created_files:
+            memory_manager.add_bug_fix(self, f"[VISUAL] {user_message[:80]}",
+                                       f"Fix via DEBUG_VISUAL V5 - Fichiers: {', '.join(self.created_files[-3:])}")
 
         memory_manager.save(self)
 
-        # Determiner le fichier de preview
         html_files = [f for f in self.created_files if f.endswith('.html')]
+        css_files = [f for f in self.created_files if f.endswith('.css')]
         preview_file = html_files[0] if html_files else None
 
-        yield {"type": "complete", "files": self.created_files, "preview": preview_file,
-               "screenshot": self.last_screenshot.get("filename") if self.last_screenshot else None}
+        yield {"type": "complete",
+               "files": self.created_files,
+               "preview": preview_file,
+               "screenshot": self.last_screenshot.get("filename") if self.last_screenshot else None,
+               "css_modified": css_files}
 
     # ───────────────────────────────────────────────────────────────────────
-    # MODE DEV - Boucle d'autonomie complete
+    # MODE DEV - Boucle d'autonomie V5 avec Smart Context
     # ───────────────────────────────────────────────────────────────────────
 
     def orchestrate_dev(self, user_message: str) -> Generator:
-        """Boucle d'autonomie: PLAN -> ACTION -> VERIFY -> DECISION (max 5 iterations)."""
+        """Boucle d'autonomie V5: SMART_CONTEXT -> PLAN -> ACTION -> VERIFY (max 5 iterations)."""
         logger.info(f"[DEV] {user_message[:40]}...")
 
         self.loop_count = 0
         self.last_error = ""
         max_loops = Config.MAX_AUTONOMY_LOOPS
 
-        # Consulter la memoire des bugs au debut
+        # ═══════════════════════════════════════════════════════════════════════
+        # PHASE 0: SMART CONTEXT INJECTION (V5)
+        # ═══════════════════════════════════════════════════════════════════════
+        yield {"type": "phase", "phase": "SMART_CONTEXT", "status": "Pre-chargement intelligent"}
+
+        smart_ctx = self._gather_smart_context(user_message, intent="DEV")
+        smart_context = smart_ctx["context_string"]
+
+        if smart_ctx["files_loaded"]:
+            logger.info(f"[SMART_CONTEXT] {len(smart_ctx['files_loaded'])} fichiers pre-charges ({smart_ctx['total_chars']:,} chars)")
+            yield {"type": "smart_context_loaded",
+                   "files": smart_ctx["files_loaded"],
+                   "chars": smart_ctx["total_chars"]}
+
+        # Consulter la memoire des bugs
         bug_context = ""
         if self.known_bugs_fixes:
             similar = memory_manager.find_similar_bug(self, user_message)
             if similar:
-                bug_context = f"\n[MEMOIRE] Bug similaire trouve: {similar['symptom']} -> Solution: {similar['solution']}"
+                bug_context = f"\n\n[MEMOIRE BUG] Probleme similaire deja resolu:\nSymptome: {similar['symptom']}\nSolution: {similar['solution']}"
                 yield {"type": "memory_hint", "bug": similar}
 
         while self.loop_count < max_loops:
@@ -1628,18 +1957,31 @@ L'utilisateur a envoye un screenshot manuel. Analyse-le et corrige le probleme."
             yield {"type": "loop_start", "iteration": self.loop_count, "max": max_loops}
 
             # ─────────────────────────────────────────────────────────────
-            # PHASE 1: PLAN (BOSS)
+            # PHASE 1: PLAN (BOSS) - Avec Smart Context au Tour 1
             # ─────────────────────────────────────────────────────────────
             yield {"type": "phase", "phase": "BOSS", "status": f"Planning (Loop {self.loop_count})"}
 
-            # Si c'est une correction, ajouter le contexte de l'erreur
-            boss_message = user_message + bug_context
-            if self.loop_count > 1 and self.last_error:
+            if self.loop_count == 1:
+                # Premier tour: injecter le contexte complet
+                boss_message = f"""DEMANDE UTILISATEUR:
+{user_message}
+{bug_context}
+
+{smart_context}
+
+INSTRUCTIONS POUR LE BOSS:
+1. Le contexte ci-dessus contient deja le code des fichiers pertinents
+2. Analyse-le pour creer un plan PRECIS
+3. Le CODER recevra aussi ce contexte, il pourra agir des le Tour 1
+4. Sois specifique: indique les fichiers a modifier et les changements exacts"""
+            elif self.last_error:
                 boss_message = f"""CORRECTION REQUISE (iteration {self.loop_count}):
 Erreur precedente: {self.last_error}
 Demande originale: {user_message}
 
 Analyse l'erreur et propose une solution alternative."""
+            else:
+                boss_message = f"Continue la tache: {user_message}"
 
             self.conversation_boss.append({"role": "user", "content": boss_message})
 
@@ -1655,15 +1997,30 @@ Analyse l'erreur et propose une solution alternative."""
                 coder_instructions = boss_text.split("[INSTRUCTION_CODER]")[-1].strip()
 
             # ─────────────────────────────────────────────────────────────
-            # PHASE 2: ACTION (CODER)
+            # PHASE 2: ACTION (CODER) - Avec contexte transmis au Tour 1
             # ─────────────────────────────────────────────────────────────
             yield {"type": "phase", "phase": "CODER", "status": f"Coding (Loop {self.loop_count})"}
 
-            self.conversation_coder = [{"role": "user", "content": f"BOSS:\n{coder_instructions}"}]
-            self.last_error = ""  # Reset error
+            if self.loop_count == 1 and smart_context:
+                # Transmettre le contexte au coder pour action immediate
+                coder_message = f"""INSTRUCTIONS DU BOSS:
+{coder_instructions}
+
+{smart_context}
+
+ACTION IMMEDIATE REQUISE:
+- Les fichiers sont deja charges ci-dessus
+- N'utilise PAS read_file pour ces fichiers
+- Utilise DIRECTEMENT write_file pour appliquer les modifications
+- Agis maintenant, pas de questions"""
+            else:
+                coder_message = f"BOSS:\n{coder_instructions}"
+
+            self.conversation_coder = [{"role": "user", "content": coder_message}]
+            self.last_error = ""
 
             coder_had_error = False
-            for event in self.run_agent_loop("coder", coder_instructions, CODER_PROMPT, self.conversation_coder, max_turns=6):
+            for event in self.run_agent_loop("coder", coder_message, CODER_PROMPT, self.conversation_coder, max_turns=6):
                 yield event
                 if event.get("type") == "tool_result" and not event.get("success", True):
                     coder_had_error = True
@@ -1674,7 +2031,7 @@ Analyse l'erreur et propose une solution alternative."""
             yield {"type": "phase", "phase": "REVIEWER", "status": f"Reviewing (Loop {self.loop_count})"}
 
             files_str = ", ".join(self.created_files[-5:]) if self.created_files else "aucun fichier"
-            review_message = f"Verifie les fichiers crees: {files_str}"
+            review_message = f"Verifie les fichiers crees/modifies: {files_str}"
 
             if self.last_error:
                 review_message += f"\nErreur detectee: {self.last_error}"
@@ -1682,7 +2039,7 @@ Analyse l'erreur et propose une solution alternative."""
             self.conversation_reviewer = [{"role": "user", "content": review_message}]
 
             reviewer_text = ""
-            for event in self.run_agent_loop("reviewer", "", REVIEWER_PROMPT, self.conversation_reviewer, max_turns=2):
+            for event in self.run_agent_loop("reviewer", review_message, REVIEWER_PROMPT, self.conversation_reviewer, max_turns=2):
                 yield event
                 if event.get("type") == "agent_text":
                     reviewer_text += event.get("content", "")
@@ -1694,7 +2051,7 @@ Analyse l'erreur et propose une solution alternative."""
             has_critical_error = coder_had_error or (self.last_error and "error" in self.last_error.lower())
 
             if verdict_approved and not has_critical_error:
-                # SUCCES: Commit et fin
+                # SUCCES
                 if SystemHealth.git_available and CONFIG["autopilot"]:
                     yield {"type": "phase", "phase": "GIT", "status": "Commit"}
                     commit_msg = f"feat: {user_message[:40]}"
@@ -1706,28 +2063,21 @@ Analyse l'erreur et propose une solution alternative."""
 
                 yield {"type": "loop_end", "iteration": self.loop_count, "status": "SUCCESS"}
                 break
-
             else:
-                # ECHEC: Continuer la boucle si possible
                 if self.loop_count < max_loops:
                     yield {"type": "loop_end", "iteration": self.loop_count, "status": "RETRY",
                            "reason": self.last_error or "Review non approuve"}
-
-                    # Extraire la correction du reviewer si disponible
                     if "CORRECTION" in reviewer_text.upper():
                         correction_part = reviewer_text.split("CORRECTION")[-1][:200]
                         self.last_error = f"Review: {correction_part}"
                 else:
                     yield {"type": "loop_end", "iteration": self.loop_count, "status": "MAX_REACHED"}
 
-        # Sauvegarder la memoire
         memory_manager.save(self)
 
-        # Determiner le fichier de preview
         html_files = [f for f in self.created_files if f.endswith('.html')]
         preview_file = html_files[0] if html_files else None
 
-        # Verifier si un serveur tourne
         servers = server_manager.list_servers()
         server_info = None
         if servers:
