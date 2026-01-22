@@ -1,14 +1,16 @@
 """
-ORBIT v3 - Autonomous Core
-Architecture: State Machine avec Intent Classification + Boucle d'Autonomie
+ORBIT v4 - Vision & Network Edition
+Architecture: State Machine avec Intent Classification + Boucle d'Autonomie + Vision AI
 
-Version: 3.0 - Autonomous Development Studio
+Version: 4.0 - Vision & Network Edition
 Fonctionnalites:
-- Intent Classification (CHAT/DEV/README)
+- Intent Classification (CHAT/DEV/README/DEBUG_VISUAL)
 - Boucle d'Autonomie (The Loop) - Max 5 iterations
+- Vision par Ordinateur (Playwright Screenshots + Claude Vision API)
+- Acces Internet Controle (DuckDuckGo Search + Web Reader)
+- Memoire Self-Healing (known_bugs_fixes)
 - Smart Search (optimisation tokens)
 - Background Server pour Live Preview
-- Memoire persistante amelioree
 """
 
 import os
@@ -21,6 +23,8 @@ import hashlib
 import re
 import signal
 import threading
+import base64
+import asyncio
 from datetime import datetime
 from typing import Optional, Dict, List, Any, Generator, Tuple
 
@@ -54,6 +58,7 @@ class Config:
     COMMAND_TIMEOUT: int = int(os.getenv("ORBIT_COMMAND_TIMEOUT", "60"))
     AUTO_CREATE_GITHUB: bool = os.getenv("ORBIT_AUTO_GITHUB", "true").lower() == "true"
     MAX_AUTONOMY_LOOPS: int = int(os.getenv("ORBIT_MAX_LOOPS", "5"))
+    SCREENSHOT_DIR: str = os.getenv("ORBIT_SCREENSHOT_DIR", "screenshots")
 
     @classmethod
     def validate(cls) -> bool:
@@ -77,12 +82,31 @@ class SystemHealth:
     """Verifie la disponibilite des outils systeme."""
     git_available: bool = False
     gh_available: bool = False
+    playwright_available: bool = False
+    duckduckgo_available: bool = False
 
     @classmethod
     def check_all(cls) -> None:
         cls.git_available = shutil.which("git") is not None
         cls.gh_available = shutil.which("gh") is not None
-        logger.info(f"Git: {'OK' if cls.git_available else 'X'} | GitHub CLI: {'OK' if cls.gh_available else 'X'}")
+
+        # Check Playwright
+        try:
+            from playwright.sync_api import sync_playwright
+            cls.playwright_available = True
+        except ImportError:
+            cls.playwright_available = False
+            logger.warning("Playwright non installe. Installez: pip install playwright && playwright install chromium")
+
+        # Check DuckDuckGo Search
+        try:
+            from duckduckgo_search import DDGS
+            cls.duckduckgo_available = True
+        except ImportError:
+            cls.duckduckgo_available = False
+            logger.warning("duckduckgo-search non installe. Installez: pip install duckduckgo-search")
+
+        logger.info(f"Git: {'OK' if cls.git_available else 'X'} | GitHub CLI: {'OK' if cls.gh_available else 'X'} | Playwright: {'OK' if cls.playwright_available else 'X'} | DuckDuckGo: {'OK' if cls.duckduckgo_available else 'X'}")
 
     @classmethod
     def require_git(cls) -> Optional[Dict]:
@@ -139,10 +163,215 @@ CONFIG = {
         "classifier": Config.DEFAULT_MODEL
     },
     "autopilot": True,
-    "max_iterations": 15
+    "max_iterations": 15,
+    "internet_enabled": False  # Toggle Internet - desactive par defaut
 }
 
 USAGE_STATS = {"total_input_tokens": 0, "total_output_tokens": 0, "calls": []}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VISION ENGINE - Screenshots avec Playwright
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class VisionEngine:
+    """Moteur de vision pour prendre et analyser des screenshots."""
+
+    def __init__(self):
+        self.screenshot_dir = os.path.join(WORKSPACE_DIR, Config.SCREENSHOT_DIR)
+        os.makedirs(self.screenshot_dir, exist_ok=True)
+
+    def take_screenshot(self, url: str, filename: str = None, full_page: bool = False) -> Dict:
+        """Prend un screenshot d'une URL avec Playwright."""
+        if not SystemHealth.playwright_available:
+            return {"success": False, "error": "Playwright non installe. pip install playwright && playwright install chromium"}
+
+        try:
+            from playwright.sync_api import sync_playwright
+
+            if not filename:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"screenshot_{timestamp}.png"
+
+            filepath = os.path.join(self.screenshot_dir, filename)
+
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                page = browser.new_page(viewport={"width": 1280, "height": 720})
+
+                try:
+                    page.goto(url, timeout=30000)
+                    page.wait_for_load_state("networkidle", timeout=10000)
+                except:
+                    pass  # Continue even if timeout
+
+                page.screenshot(path=filepath, full_page=full_page)
+                browser.close()
+
+            # Encoder en base64 pour l'API Vision
+            with open(filepath, "rb") as f:
+                image_data = base64.standard_b64encode(f.read()).decode("utf-8")
+
+            return {
+                "success": True,
+                "filepath": filepath,
+                "filename": filename,
+                "url": url,
+                "base64": image_data,
+                "size": os.path.getsize(filepath)
+            }
+
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def analyze_screenshot(self, image_base64: str, prompt: str = None) -> Dict:
+        """Analyse un screenshot avec l'API Vision de Claude."""
+        if not client:
+            return {"success": False, "error": "Client Anthropic non initialise"}
+
+        analysis_prompt = prompt or """Analyse cette capture d'ecran d'un site web en developpement.
+Identifie:
+1. Les problemes visuels (alignement, espacement, couleurs)
+2. Les bugs d'interface potentiels
+3. Les elements manquants ou mal positionnes
+4. Suggestions d'amelioration UX/UI
+
+Sois precis et actionnable dans tes observations."""
+
+        try:
+            response = client.messages.create(
+                model=CONFIG["models"]["reviewer"],
+                max_tokens=2000,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/png",
+                                    "data": image_base64
+                                }
+                            },
+                            {
+                                "type": "text",
+                                "text": analysis_prompt
+                            }
+                        ]
+                    }
+                ]
+            )
+
+            analysis = response.content[0].text if response.content else "Pas d'analyse disponible"
+
+            return {
+                "success": True,
+                "analysis": analysis,
+                "tokens_used": {
+                    "input": response.usage.input_tokens,
+                    "output": response.usage.output_tokens
+                }
+            }
+
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+vision_engine = VisionEngine()
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# INTERNET ENGINE - Recherche Web et Lecture de Pages
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class InternetEngine:
+    """Moteur de recherche et lecture web."""
+
+    @staticmethod
+    def is_enabled() -> bool:
+        """Verifie si l'acces internet est active."""
+        return CONFIG.get("internet_enabled", False)
+
+    @staticmethod
+    def web_search(query: str, max_results: int = 5) -> Dict:
+        """Recherche sur le web via DuckDuckGo."""
+        if not InternetEngine.is_enabled():
+            return {"success": False, "error": "Acces Internet desactive. Activez le toggle INTERNET."}
+
+        if not SystemHealth.duckduckgo_available:
+            return {"success": False, "error": "duckduckgo-search non installe. pip install duckduckgo-search"}
+
+        try:
+            from duckduckgo_search import DDGS
+
+            results = []
+            with DDGS() as ddgs:
+                for r in ddgs.text(query, max_results=max_results):
+                    results.append({
+                        "title": r.get("title", ""),
+                        "url": r.get("href", ""),
+                        "snippet": r.get("body", "")[:200]
+                    })
+
+            return {
+                "success": True,
+                "query": query,
+                "results": results,
+                "count": len(results)
+            }
+
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @staticmethod
+    def read_webpage(url: str, max_chars: int = 5000) -> Dict:
+        """Lit le contenu d'une page web."""
+        if not InternetEngine.is_enabled():
+            return {"success": False, "error": "Acces Internet desactive. Activez le toggle INTERNET."}
+
+        try:
+            import urllib.request
+            from html.parser import HTMLParser
+
+            class TextExtractor(HTMLParser):
+                def __init__(self):
+                    super().__init__()
+                    self.text = []
+                    self.skip_tags = {'script', 'style', 'head', 'meta', 'link'}
+                    self.current_tag = None
+
+                def handle_starttag(self, tag, attrs):
+                    self.current_tag = tag
+
+                def handle_endtag(self, tag):
+                    self.current_tag = None
+
+                def handle_data(self, data):
+                    if self.current_tag not in self.skip_tags:
+                        text = data.strip()
+                        if text:
+                            self.text.append(text)
+
+                def get_text(self):
+                    return ' '.join(self.text)
+
+            req = urllib.request.Request(url, headers={'User-Agent': 'ORBIT/4.0'})
+            with urllib.request.urlopen(req, timeout=15) as response:
+                html = response.read().decode('utf-8', errors='ignore')
+
+            parser = TextExtractor()
+            parser.feed(html)
+            text = parser.get_text()[:max_chars]
+
+            return {
+                "success": True,
+                "url": url,
+                "content": text,
+                "length": len(text)
+            }
+
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+internet_engine = InternetEngine()
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # GESTIONNAIRE DE SERVEURS EN BACKGROUND (Live Preview)
@@ -397,11 +626,11 @@ class SmartSearch:
             return {"success": False, "error": str(e)}
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# INTENT CLASSIFIER - Cerveau Hybride (CHAT/DEV/README)
+# INTENT CLASSIFIER - Cerveau Hybride (CHAT/DEV/README/DEBUG_VISUAL)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class IntentClassifier:
-    """Classifie l'intention de l'utilisateur: CHAT, DEV, ou README."""
+    """Classifie l'intention de l'utilisateur: CHAT, DEV, README, ou DEBUG_VISUAL."""
 
     # Mots-cles pour chaque intention
     CHAT_KEYWORDS = [
@@ -427,12 +656,26 @@ class IntentClassifier:
         "explique le projet", "decris le projet", "describe project"
     ]
 
+    DEBUG_VISUAL_KEYWORDS = [
+        "debug visuel", "visual debug", "screenshot", "capture",
+        "mal centre", "mal aligne", "pas aligne", "decale",
+        "probleme visuel", "visual problem", "visual issue",
+        "regarde le site", "check the site", "voir le rendu",
+        "bouton mal", "element mal", "css bug", "style bug",
+        "probleme d'affichage", "display issue", "rendu incorrect"
+    ]
+
     @classmethod
     def classify(cls, message: str) -> str:
-        """Classifie le message en CHAT, DEV ou README."""
+        """Classifie le message en CHAT, DEV, README ou DEBUG_VISUAL."""
         msg_lower = message.lower()
 
-        # Verifier README en premier (plus specifique)
+        # Verifier DEBUG_VISUAL en premier (plus specifique)
+        for keyword in cls.DEBUG_VISUAL_KEYWORDS:
+            if keyword in msg_lower:
+                return "DEBUG_VISUAL"
+
+        # Verifier README
         for keyword in cls.README_KEYWORDS:
             if keyword in msg_lower:
                 return "README"
@@ -471,27 +714,28 @@ class IntentClassifier:
             response = client.messages.create(
                 model=CONFIG["models"]["classifier"],
                 max_tokens=50,
-                system="""Classifie le message en exactement UN mot: CHAT, DEV, ou README.
+                system="""Classifie le message en exactement UN mot: CHAT, DEV, README, ou DEBUG_VISUAL.
 - CHAT: Questions, conversations, explications, aide generale
 - DEV: Creation de code, modification, correction de bugs, nouveaux fichiers
 - README: Generation de documentation du projet
-Reponds UNIQUEMENT par: CHAT, DEV, ou README""",
+- DEBUG_VISUAL: Problemes visuels/CSS, demande de screenshot, debug d'interface
+Reponds UNIQUEMENT par: CHAT, DEV, README, ou DEBUG_VISUAL""",
                 messages=[{"role": "user", "content": message}]
             )
 
             result = response.content[0].text.strip().upper()
-            if result in ["CHAT", "DEV", "README"]:
+            if result in ["CHAT", "DEV", "README", "DEBUG_VISUAL"]:
                 return result
             return cls.classify(message)
         except:
             return cls.classify(message)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PERSISTENCE MEMOIRE
+# PERSISTENCE MEMOIRE - Avec Self-Healing (known_bugs_fixes)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class MemoryManager:
-    """Gere la persistance des conversations."""
+    """Gere la persistance des conversations et des solutions aux bugs."""
 
     def __init__(self):
         self.memory_file = Config.MEMORY_FILE
@@ -517,13 +761,14 @@ class MemoryManager:
             data = {
                 "saved_at": datetime.now().isoformat(),
                 "workspace": WORKSPACE_DIR,
-                "version": "3.0",
+                "version": "4.0",
                 "boss": make_serializable(TokenOptimizer.compress_conversation(orchestrator.conversation_boss)),
                 "coder": make_serializable(TokenOptimizer.compress_conversation(orchestrator.conversation_coder)),
                 "reviewer": make_serializable(TokenOptimizer.compress_conversation(orchestrator.conversation_reviewer)),
                 "chat_history": make_serializable(orchestrator.chat_history[-20:]),
                 "files": orchestrator.created_files[-10:],
                 "project_summary": orchestrator.project_summary,
+                "known_bugs_fixes": orchestrator.known_bugs_fixes,  # Self-Healing Memory
                 "usage": USAGE_STATS
             }
             with open(self._get_path(), "w", encoding="utf-8") as f:
@@ -572,8 +817,9 @@ class MemoryManager:
             orchestrator.created_files = data.get("files", [])
             orchestrator.chat_history = data.get("chat_history", [])
             orchestrator.project_summary = data.get("project_summary", "")
+            orchestrator.known_bugs_fixes = data.get("known_bugs_fixes", [])  # Load Self-Healing Memory
 
-            logger.info(f"Memoire chargee (v{data.get('version', '2.x')})")
+            logger.info(f"Memoire chargee (v{data.get('version', '3.x')}) - {len(orchestrator.known_bugs_fixes)} bugs connus")
             return True
         except Exception as e:
             logger.warning(f"Memoire non chargee: {e}")
@@ -588,10 +834,37 @@ class MemoryManager:
         except:
             return False
 
+    def add_bug_fix(self, orchestrator: 'AgentOrchestrator', symptom: str, solution: str) -> bool:
+        """Ajoute une solution de bug a la memoire Self-Healing."""
+        try:
+            bug_fix = {
+                "symptom": symptom,
+                "solution": solution,
+                "timestamp": datetime.now().isoformat(),
+                "project": os.path.basename(WORKSPACE_DIR)
+            }
+            orchestrator.known_bugs_fixes.append(bug_fix)
+            # Garder seulement les 50 derniers
+            orchestrator.known_bugs_fixes = orchestrator.known_bugs_fixes[-50:]
+            self.save(orchestrator)
+            logger.info(f"Bug fix ajoute: {symptom[:30]}...")
+            return True
+        except Exception as e:
+            logger.error(f"Erreur ajout bug fix: {e}")
+            return False
+
+    def find_similar_bug(self, orchestrator: 'AgentOrchestrator', symptom: str) -> Optional[Dict]:
+        """Cherche un bug similaire dans la memoire."""
+        symptom_lower = symptom.lower()
+        for bug in orchestrator.known_bugs_fixes:
+            if any(word in bug.get("symptom", "").lower() for word in symptom_lower.split() if len(word) > 3):
+                return bug
+        return None
+
 memory_manager = MemoryManager()
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# OUTILS AGENTS (enrichis avec smart_search et start_server)
+# OUTILS AGENTS (enrichis avec vision et internet)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 TOOLS = [
@@ -692,10 +965,74 @@ TOOLS = [
             },
             "required": ["port"]
         }
+    },
+    # ═══ NOUVEAUX OUTILS V4: VISION ═══
+    {
+        "name": "take_screenshot",
+        "description": "Prend un screenshot d'une URL (localhost ou web). Utilise Playwright en headless. Retourne le chemin et l'image en base64.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "URL a capturer (ex: http://localhost:3000)"},
+                "filename": {"type": "string", "description": "Nom du fichier (optionnel)"},
+                "full_page": {"type": "boolean", "description": "Capture page entiere (defaut: false)"}
+            },
+            "required": ["url"]
+        }
+    },
+    {
+        "name": "analyze_screenshot",
+        "description": "Analyse un screenshot avec l'API Vision de Claude pour detecter les problemes visuels.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "image_base64": {"type": "string", "description": "Image en base64"},
+                "prompt": {"type": "string", "description": "Instructions specifiques pour l'analyse (optionnel)"}
+            },
+            "required": ["image_base64"]
+        }
+    },
+    # ═══ NOUVEAUX OUTILS V4: INTERNET ═══
+    {
+        "name": "web_search",
+        "description": "Recherche sur le web via DuckDuckGo. REQUIERT: Toggle Internet active.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Requete de recherche"},
+                "max_results": {"type": "integer", "description": "Nombre max de resultats (defaut: 5)"}
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "read_webpage",
+        "description": "Lit le contenu texte d'une page web. REQUIERT: Toggle Internet active.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "URL de la page a lire"},
+                "max_chars": {"type": "integer", "description": "Nombre max de caracteres (defaut: 5000)"}
+            },
+            "required": ["url"]
+        }
+    },
+    # ═══ OUTIL MEMOIRE SELF-HEALING ═══
+    {
+        "name": "save_bug_fix",
+        "description": "Sauvegarde une solution de bug dans la memoire Self-Healing pour reference future.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symptom": {"type": "string", "description": "Description du symptome/erreur"},
+                "solution": {"type": "string", "description": "Solution appliquee"}
+            },
+            "required": ["symptom", "solution"]
+        }
     }
 ]
 
-def execute_tool(name: str, args: dict) -> dict:
+def execute_tool(name: str, args: dict, orchestrator: 'AgentOrchestrator' = None) -> dict:
     """Execute un outil avec resultats compresses."""
     global WORKSPACE_DIR
 
@@ -764,6 +1101,40 @@ def execute_tool(name: str, args: dict) -> dict:
         elif name == "stop_server":
             return server_manager.stop_server(args["port"])
 
+        # ═══ OUTILS VISION V4 ═══
+        elif name == "take_screenshot":
+            url = args["url"]
+            filename = args.get("filename")
+            full_page = args.get("full_page", False)
+            return vision_engine.take_screenshot(url, filename, full_page)
+
+        elif name == "analyze_screenshot":
+            image_base64 = args["image_base64"]
+            prompt = args.get("prompt")
+            return vision_engine.analyze_screenshot(image_base64, prompt)
+
+        # ═══ OUTILS INTERNET V4 ═══
+        elif name == "web_search":
+            query = args["query"]
+            max_results = args.get("max_results", 5)
+            return internet_engine.web_search(query, max_results)
+
+        elif name == "read_webpage":
+            url = args["url"]
+            max_chars = args.get("max_chars", 5000)
+            return internet_engine.read_webpage(url, max_chars)
+
+        # ═══ OUTIL MEMOIRE SELF-HEALING ═══
+        elif name == "save_bug_fix":
+            if orchestrator:
+                success = memory_manager.add_bug_fix(
+                    orchestrator,
+                    args["symptom"],
+                    args["solution"]
+                )
+                return {"success": success, "msg": "Bug fix sauvegarde" if success else "Erreur sauvegarde"}
+            return {"success": False, "error": "Orchestrator non disponible"}
+
         return {"success": False, "error": f"Outil inconnu: {name}"}
 
     except subprocess.TimeoutExpired:
@@ -775,7 +1146,7 @@ def execute_tool(name: str, args: dict) -> dict:
 # PROMPTS SYSTEME
 # ═══════════════════════════════════════════════════════════════════════════════
 
-BOSS_PROMPT = """Tu es le BOSS d'ORBIT v3. Tu analyses et planifies.
+BOSS_PROMPT = """Tu es le BOSS d'ORBIT v4 (Vision & Network Edition). Tu analyses et planifies.
 
 FORMAT:
 [ANALYSE] Ce que l'utilisateur veut (1-2 lignes)
@@ -784,13 +1155,15 @@ FORMAT:
 
 REGLES:
 - UTILISE smart_search AVANT de lire des fichiers entiers
+- Consulte la MEMOIRE DES BUGS CONNUS avant chaque tache
+- Si internet est active, tu peux utiliser web_search pour chercher des docs
 - Sois concis et efficace
 - Delegue au CODER pour l'execution
 - Pas de signature/credit dans le code"""
 
-CODER_PROMPT = """Tu es le CODER d'ORBIT v3 sur Windows PowerShell.
+CODER_PROMPT = """Tu es le CODER d'ORBIT v4 sur Windows PowerShell.
 
-OUTILS: write_file, read_file, run_command, list_files, smart_search, find_function, start_server
+OUTILS: write_file, read_file, run_command, list_files, smart_search, find_function, start_server, take_screenshot, web_search (si Internet active)
 
 REGLES:
 - Separe HTML/CSS/JS en fichiers distincts
@@ -799,22 +1172,26 @@ REGLES:
 - Pas de signature/credit
 - Si erreur -> analyse et corrige immediatement
 - Pour les apps React/Node, utilise start_server pour le preview
+- Quand tu corriges un bug difficile, utilise save_bug_fix pour sauvegarder la solution
 
 FORMAT: [ACTION] description [EXECUTION] ce que tu fais [RESULTAT] resultat"""
 
-REVIEWER_PROMPT = """Tu es le REVIEWER d'ORBIT v3. Tu verifies le code.
+REVIEWER_PROMPT = """Tu es le REVIEWER d'ORBIT v4. Tu verifies le code.
 
 FORMAT:
 [REVIEW] Fichiers verifies
 [CHECKLIST] Points (OK ou X pour chaque)
 [VERDICT] APPROUVE ou CORRECTIONS avec details
 
-Si CORRECTIONS, sois specifique sur ce qu'il faut corriger."""
+Si CORRECTIONS, sois specifique sur ce qu'il faut corriger.
 
-CHAT_PROMPT = """Tu es ORBIT, un assistant de developpement intelligent.
+NOUVEAUTE V4: Tu peux utiliser take_screenshot pour voir le rendu visuel et analyze_screenshot pour detecter les problemes d'interface."""
+
+CHAT_PROMPT = """Tu es ORBIT v4, un assistant de developpement intelligent avec Vision et Acces Internet.
 Tu reponds de maniere conversationnelle et utile.
 Tu as acces au contexte du projet actuel.
-Sois concis mais informatif. N'utilise pas les outils sauf si necessaire."""
+Sois concis mais informatif. N'utilise pas les outils sauf si necessaire.
+Si l'utilisateur parle d'un probleme visuel, propose d'utiliser le mode DEBUG_VISUAL."""
 
 README_PROMPT = """Tu es un expert en documentation. Genere un README.md complet:
 
@@ -827,12 +1204,31 @@ README_PROMPT = """Tu es un expert en documentation. Genere un README.md complet
 
 Base-toi sur l'analyse des fichiers du projet."""
 
+DEBUG_VISUAL_PROMPT = """Tu es le DEBUGGER VISUEL d'ORBIT v4. Tu analyses les problemes d'interface.
+
+WORKFLOW:
+1. Prends un screenshot avec take_screenshot
+2. Analyse le screenshot avec analyze_screenshot
+3. Identifie les problemes visuels
+4. Correle avec le code source
+5. Propose et applique les corrections
+6. Prends un nouveau screenshot de verification
+
+OUTILS: take_screenshot, analyze_screenshot, read_file, write_file, smart_search
+
+FORMAT:
+[CAPTURE] Screenshot de l'URL
+[ANALYSE_VISUELLE] Problemes detectes
+[CORRELATION_CODE] Fichiers concernes
+[FIX] Corrections appliquees
+[VERIFICATION] Nouveau screenshot"""
+
 # ═══════════════════════════════════════════════════════════════════════════════
-# ORCHESTRATEUR AUTONOME (The Loop)
+# ORCHESTRATEUR AUTONOME (The Loop) - V4 avec Vision
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class AgentOrchestrator:
-    """Orchestrateur avec boucle d'autonomie (max 5 iterations)."""
+    """Orchestrateur avec boucle d'autonomie (max 5 iterations) et Vision."""
 
     def __init__(self):
         self.conversation_boss: List[Dict] = []
@@ -844,6 +1240,8 @@ class AgentOrchestrator:
         self.project_summary: str = ""
         self.loop_count: int = 0
         self.last_error: str = ""
+        self.known_bugs_fixes: List[Dict] = []  # Memoire Self-Healing
+        self.last_screenshot: Optional[Dict] = None  # Dernier screenshot pris
 
     def reset(self) -> None:
         self.conversation_boss = []
@@ -854,6 +1252,8 @@ class AgentOrchestrator:
         self.project_summary = ""
         self.loop_count = 0
         self.last_error = ""
+        # Ne pas reset known_bugs_fixes pour garder la memoire
+        self.last_screenshot = None
 
     def track_usage(self, response, agent: str) -> None:
         if hasattr(response, 'usage'):
@@ -865,12 +1265,31 @@ class AgentOrchestrator:
                 "out": response.usage.output_tokens
             })
 
-    def call_agent(self, agent: str, messages: list, system_prompt: str):
+    def call_agent(self, agent: str, messages: list, system_prompt: str, include_image: Dict = None):
+        """Appelle un agent, avec support optionnel d'image pour Vision."""
         if not client:
             raise RuntimeError("Client Anthropic non initialise")
 
         compressed_messages = TokenOptimizer.compress_conversation(messages)
         model = CONFIG["models"].get(agent, CONFIG["models"]["coder"])
+
+        # Si une image est fournie, l'ajouter au dernier message
+        if include_image and compressed_messages:
+            last_msg = compressed_messages[-1]
+            if last_msg["role"] == "user":
+                content = last_msg.get("content", "")
+                if isinstance(content, str):
+                    last_msg["content"] = [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/png",
+                                "data": include_image["base64"]
+                            }
+                        },
+                        {"type": "text", "text": content}
+                    ]
 
         import time
         max_retries = 3
@@ -913,7 +1332,7 @@ class AgentOrchestrator:
                     "name": block.name,
                     "input": block.input
                 })
-                result = execute_tool(block.name, block.input)
+                result = execute_tool(block.name, block.input, self)
                 compressed_result = TokenOptimizer.compress_tool_result(result)
                 results.append({
                     "tool": block.name,
@@ -925,6 +1344,10 @@ class AgentOrchestrator:
                     if filename not in self.created_files:
                         self.created_files.append(filename)
 
+                # Stocker le dernier screenshot
+                if block.name == "take_screenshot" and result.get("success"):
+                    self.last_screenshot = result
+
                 # Tracker les erreurs
                 if not result.get("success"):
                     self.last_error = result.get("error", "Erreur inconnue")
@@ -934,12 +1357,12 @@ class AgentOrchestrator:
         return results
 
     def run_agent_loop(self, agent: str, initial_message: str, system_prompt: str,
-                       conversation: list, max_turns: int = 5) -> Generator:
+                       conversation: list, max_turns: int = 5, include_image: Dict = None) -> Generator:
         if not conversation or conversation[-1]["role"] != "user":
             conversation.append({"role": "user", "content": initial_message})
 
         for turn in range(max_turns):
-            response = self.call_agent(agent, conversation, system_prompt)
+            response = self.call_agent(agent, conversation, system_prompt, include_image if turn == 0 else None)
             tool_results = self.process_tool_calls(response, conversation)
 
             for block in response.content:
@@ -949,6 +1372,11 @@ class AgentOrchestrator:
             for tr in tool_results:
                 yield {"type": "tool_result", "agent": agent, "tool": tr["tool"],
                        "success": tr["result"].get("success", False), "result": tr["result"]}
+
+                # Si un screenshot a ete pris, l'envoyer au frontend
+                if tr["tool"] == "take_screenshot" and tr["result"].get("success"):
+                    yield {"type": "screenshot", "filename": tr["result"].get("filename"),
+                           "base64": tr["result"].get("base64", "")[:100] + "..."}  # Tronque pour le log
 
             if tool_results:
                 tool_results_content = []
@@ -1082,6 +1510,98 @@ Contenu des fichiers principaux:
         yield {"type": "complete", "files": ["README.md"], "preview": None}
 
     # ───────────────────────────────────────────────────────────────────────
+    # MODE DEBUG_VISUAL - Nouveau mode V4
+    # ───────────────────────────────────────────────────────────────────────
+
+    def handle_debug_visual(self, user_message: str, screenshot_base64: str = None, target_url: str = None) -> Generator:
+        """Mode DEBUG_VISUAL: Screenshot -> Analyse -> Fix -> Verification."""
+        logger.info(f"[DEBUG_VISUAL] {user_message[:40]}...")
+
+        yield {"type": "phase", "phase": "DEBUG_VISUAL", "status": "Initialisation"}
+
+        # Determiner l'URL a capturer
+        if not target_url:
+            # Chercher un serveur actif ou utiliser localhost:3000
+            servers = server_manager.list_servers()
+            if servers:
+                running = [s for s in servers if s.get("running")]
+                if running:
+                    target_url = f"http://localhost:{running[0]['port']}"
+            if not target_url:
+                target_url = "http://localhost:3000"
+
+        # Contexte avec memoire des bugs
+        bug_context = ""
+        if self.known_bugs_fixes:
+            similar = memory_manager.find_similar_bug(self, user_message)
+            if similar:
+                bug_context = f"\n[BUG SIMILAIRE TROUVE]\nSymptome: {similar['symptom']}\nSolution: {similar['solution']}\n"
+
+        debug_message = f"""PROBLEME VISUEL SIGNALE:
+{user_message}
+
+URL cible: {target_url}
+{bug_context}
+
+INSTRUCTIONS:
+1. Prends un screenshot de {target_url}
+2. Analyse le screenshot pour identifier le probleme
+3. Trouve le code source responsable
+4. Applique la correction
+5. Prends un nouveau screenshot pour verifier"""
+
+        # Si un screenshot manuel est fourni
+        if screenshot_base64:
+            debug_message = f"""SCREENSHOT MANUEL FOURNI - ANALYSE REQUISE:
+{user_message}
+{bug_context}
+
+L'utilisateur a envoye un screenshot manuel. Analyse-le et corrige le probleme."""
+
+            yield {"type": "phase", "phase": "DEBUG_VISUAL", "status": "Analyse screenshot manuel"}
+
+            # Analyser le screenshot fourni
+            analysis = vision_engine.analyze_screenshot(screenshot_base64, user_message)
+            if analysis.get("success"):
+                yield {"type": "agent_text", "agent": "debug_visual", "content": f"[ANALYSE]\n{analysis['analysis']}"}
+                debug_message += f"\n\n[ANALYSE DU SCREENSHOT]\n{analysis['analysis']}"
+
+        self.conversation_coder = [{"role": "user", "content": debug_message}]
+
+        # Phase 1: Capture et Analyse
+        yield {"type": "phase", "phase": "DEBUG_VISUAL", "status": "Capture & Analyse"}
+
+        for event in self.run_agent_loop("coder", debug_message, DEBUG_VISUAL_PROMPT,
+                                         self.conversation_coder, max_turns=8,
+                                         include_image={"base64": screenshot_base64} if screenshot_base64 else None):
+            yield event
+
+        # Phase 2: Verification finale avec nouveau screenshot
+        yield {"type": "phase", "phase": "DEBUG_VISUAL", "status": "Verification"}
+
+        if self.last_screenshot:
+            verification_result = vision_engine.analyze_screenshot(
+                self.last_screenshot.get("base64", ""),
+                "Verifie si le probleme a ete resolu. Compare avec la description initiale."
+            )
+            if verification_result.get("success"):
+                yield {"type": "agent_text", "agent": "debug_visual",
+                       "content": f"[VERIFICATION]\n{verification_result['analysis']}"}
+
+        # Sauvegarder le fix si succes
+        if not self.last_error:
+            memory_manager.add_bug_fix(self, user_message[:100], "Fix applique via DEBUG_VISUAL")
+
+        memory_manager.save(self)
+
+        # Determiner le fichier de preview
+        html_files = [f for f in self.created_files if f.endswith('.html')]
+        preview_file = html_files[0] if html_files else None
+
+        yield {"type": "complete", "files": self.created_files, "preview": preview_file,
+               "screenshot": self.last_screenshot.get("filename") if self.last_screenshot else None}
+
+    # ───────────────────────────────────────────────────────────────────────
     # MODE DEV - Boucle d'autonomie complete
     # ───────────────────────────────────────────────────────────────────────
 
@@ -1092,6 +1612,14 @@ Contenu des fichiers principaux:
         self.loop_count = 0
         self.last_error = ""
         max_loops = Config.MAX_AUTONOMY_LOOPS
+
+        # Consulter la memoire des bugs au debut
+        bug_context = ""
+        if self.known_bugs_fixes:
+            similar = memory_manager.find_similar_bug(self, user_message)
+            if similar:
+                bug_context = f"\n[MEMOIRE] Bug similaire trouve: {similar['symptom']} -> Solution: {similar['solution']}"
+                yield {"type": "memory_hint", "bug": similar}
 
         while self.loop_count < max_loops:
             self.loop_count += 1
@@ -1105,7 +1633,7 @@ Contenu des fichiers principaux:
             yield {"type": "phase", "phase": "BOSS", "status": f"Planning (Loop {self.loop_count})"}
 
             # Si c'est une correction, ajouter le contexte de l'erreur
-            boss_message = user_message
+            boss_message = user_message + bug_context
             if self.loop_count > 1 and self.last_error:
                 boss_message = f"""CORRECTION REQUISE (iteration {self.loop_count}):
 Erreur precedente: {self.last_error}
@@ -1217,11 +1745,16 @@ Analyse l'erreur et propose une solution alternative."""
     # POINT D'ENTREE PRINCIPAL
     # ───────────────────────────────────────────────────────────────────────
 
-    def orchestrate(self, user_message: str) -> Generator:
+    def orchestrate(self, user_message: str, screenshot_base64: str = None) -> Generator:
         """Point d'entree principal avec classification d'intention."""
 
         # ETAPE 1: Classifier l'intention
         intent = IntentClassifier.classify(user_message)
+
+        # Si un screenshot est fourni, forcer DEBUG_VISUAL
+        if screenshot_base64:
+            intent = "DEBUG_VISUAL"
+
         logger.info(f"[INTENT] {intent} -> {user_message[:30]}...")
 
         yield {"type": "intent", "intent": intent}
@@ -1231,6 +1764,8 @@ Analyse l'erreur et propose une solution alternative."""
             yield from self.handle_chat(user_message)
         elif intent == "README":
             yield from self.handle_readme(user_message)
+        elif intent == "DEBUG_VISUAL":
+            yield from self.handle_debug_visual(user_message, screenshot_base64)
         else:  # DEV
             yield from self.orchestrate_dev(user_message)
 
@@ -1307,14 +1842,22 @@ def home():
 def serve_file(filename):
     return send_from_directory(WORKSPACE_DIR, filename)
 
+@app.route('/screenshot/<path:filename>')
+def serve_screenshot(filename):
+    """Sert les screenshots depuis le dossier screenshots."""
+    screenshot_dir = os.path.join(WORKSPACE_DIR, Config.SCREENSHOT_DIR)
+    return send_from_directory(screenshot_dir, filename)
+
 @app.route('/chat', methods=['POST'])
 def chat():
     user_message = request.json.get('message', '')
-    if not user_message:
-        return jsonify({"error": "Message vide"}), 400
+    screenshot_base64 = request.json.get('screenshot')  # Screenshot manuel optionnel
+
+    if not user_message and not screenshot_base64:
+        return jsonify({"error": "Message ou screenshot requis"}), 400
 
     def generate():
-        for event in orchestrator.orchestrate(user_message):
+        for event in orchestrator.orchestrate(user_message, screenshot_base64):
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
     return Response(generate(), mimetype='text/event-stream')
@@ -1337,6 +1880,9 @@ def config_route():
             CONFIG['models']['boss'] = model
             CONFIG['models']['coder'] = model
             CONFIG['models']['reviewer'] = model
+        if 'internet_enabled' in data:
+            CONFIG['internet_enabled'] = data['internet_enabled']
+            logger.info(f"Internet toggle: {'ON' if data['internet_enabled'] else 'OFF'}")
         return jsonify({"success": True, "config": CONFIG})
     return jsonify(CONFIG)
 
@@ -1358,13 +1904,84 @@ def list_workspace_files():
 def health():
     return jsonify({
         "status": "ok",
-        "version": "3.0",
+        "version": "4.0",
+        "features": ["vision", "internet", "self_healing"],
         "git": SystemHealth.git_available,
         "gh": SystemHealth.gh_available,
+        "playwright": SystemHealth.playwright_available,
+        "duckduckgo": SystemHealth.duckduckgo_available,
         "workspace": WORKSPACE_DIR,
         "model": Config.DEFAULT_MODEL,
-        "servers": server_manager.list_servers()
+        "internet_enabled": CONFIG.get("internet_enabled", False),
+        "servers": server_manager.list_servers(),
+        "known_bugs_count": len(orchestrator.known_bugs_fixes)
     })
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ROUTES VISION V4
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.route('/vision/screenshot', methods=['POST'])
+def take_screenshot_route():
+    """Prend un screenshot d'une URL."""
+    data = request.json or {}
+    url = data.get('url', 'http://localhost:3000')
+    full_page = data.get('full_page', False)
+
+    result = vision_engine.take_screenshot(url, full_page=full_page)
+
+    if result.get("success"):
+        # Ne pas renvoyer le base64 complet dans la reponse API
+        return jsonify({
+            "success": True,
+            "filename": result.get("filename"),
+            "url": result.get("url"),
+            "size": result.get("size")
+        })
+    return jsonify(result)
+
+@app.route('/vision/analyze', methods=['POST'])
+def analyze_screenshot_route():
+    """Analyse un screenshot avec Vision API."""
+    data = request.json or {}
+    image_base64 = data.get('image_base64')
+    prompt = data.get('prompt')
+
+    if not image_base64:
+        return jsonify({"success": False, "error": "image_base64 requis"})
+
+    result = vision_engine.analyze_screenshot(image_base64, prompt)
+    return jsonify(result)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ROUTES INTERNET V4
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.route('/internet/search', methods=['POST'])
+def web_search_route():
+    """Recherche web via DuckDuckGo."""
+    data = request.json or {}
+    query = data.get('query')
+    max_results = data.get('max_results', 5)
+
+    if not query:
+        return jsonify({"success": False, "error": "query requis"})
+
+    result = internet_engine.web_search(query, max_results)
+    return jsonify(result)
+
+@app.route('/internet/read', methods=['POST'])
+def read_webpage_route():
+    """Lit une page web."""
+    data = request.json or {}
+    url = data.get('url')
+    max_chars = data.get('max_chars', 5000)
+
+    if not url:
+        return jsonify({"success": False, "error": "url requis"})
+
+    result = internet_engine.read_webpage(url, max_chars)
+    return jsonify(result)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ROUTES SERVEURS BACKGROUND
@@ -1557,7 +2174,7 @@ def create_project():
 
         readme_path = os.path.join(project_path, "README.md")
         with open(readme_path, "w", encoding="utf-8") as f:
-            f.write(f"# {name}\n\nProjet cree avec ORBIT v3.\n")
+            f.write(f"# {name}\n\nProjet cree avec ORBIT v4.\n")
 
         github_result = None
         if auto_github and SystemHealth.gh_available and git_ok:
@@ -1617,6 +2234,48 @@ def current_project():
     return jsonify({"name": os.path.basename(WORKSPACE_DIR), "path": WORKSPACE_DIR})
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# ROUTES MEMOIRE SELF-HEALING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.route('/memory/bugs')
+def list_known_bugs():
+    """Liste les bugs connus et leurs solutions."""
+    return jsonify({
+        "success": True,
+        "bugs": orchestrator.known_bugs_fixes,
+        "count": len(orchestrator.known_bugs_fixes)
+    })
+
+@app.route('/memory/bugs/add', methods=['POST'])
+def add_bug_fix():
+    """Ajoute manuellement un bug fix a la memoire."""
+    data = request.json or {}
+    symptom = data.get('symptom', '').strip()
+    solution = data.get('solution', '').strip()
+
+    if not symptom or not solution:
+        return jsonify({"success": False, "error": "symptom et solution requis"})
+
+    success = memory_manager.add_bug_fix(orchestrator, symptom, solution)
+    return jsonify({"success": success})
+
+@app.route('/memory/bugs/search', methods=['POST'])
+def search_bug():
+    """Cherche un bug similaire dans la memoire."""
+    data = request.json or {}
+    symptom = data.get('symptom', '').strip()
+
+    if not symptom:
+        return jsonify({"success": False, "error": "symptom requis"})
+
+    result = memory_manager.find_similar_bug(orchestrator, symptom)
+    return jsonify({
+        "success": True,
+        "found": result is not None,
+        "bug": result
+    })
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # CLEANUP
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1633,18 +2292,21 @@ def cleanup():
 # ═══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == '__main__':
-    print("\n" + "=" * 55)
-    print("  ORBIT v3.0 - Autonomous Core")
+    print("\n" + "=" * 60)
+    print("  ORBIT v4.0 - Vision & Network Edition")
     print("  -> http://127.0.0.1:5000")
-    print("-" * 55)
+    print("-" * 60)
     print(f"  Projets: {Config.PROJECTS_ROOT}")
     print(f"  Modele: {Config.DEFAULT_MODEL}")
     print(f"  Git: {'OK' if SystemHealth.git_available else 'X'}")
     print(f"  GitHub: {'OK' if SystemHealth.gh_available else 'X (optionnel)'}")
+    print(f"  Playwright (Vision): {'OK' if SystemHealth.playwright_available else 'X (pip install playwright)'}")
+    print(f"  DuckDuckGo (Internet): {'OK' if SystemHealth.duckduckgo_available else 'X (pip install duckduckgo-search)'}")
     print(f"  Max tokens: {Config.MAX_TOKENS}")
     print(f"  Boucles autonomie: {Config.MAX_AUTONOMY_LOOPS}")
-    print("=" * 55)
-    print("  [CHAT] Conversation | [DEV] Code | [README] Doc")
-    print("=" * 55 + "\n")
+    print(f"  Bugs connus: {len(orchestrator.known_bugs_fixes)}")
+    print("=" * 60)
+    print("  Modes: [CHAT] [DEV] [README] [DEBUG_VISUAL]")
+    print("=" * 60 + "\n")
 
     app.run(debug=True, port=5000, threaded=True)

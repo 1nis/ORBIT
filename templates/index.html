@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ORBIT v3 - Autonomous Development Studio</title>
+    <title>ORBIT v4 - Vision & Network Edition</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
@@ -20,7 +20,9 @@
                         reviewer: { DEFAULT: '#10b981', light: '#34d399', dark: '#059669' },
                         orbit: { DEFAULT: '#3b82f6', light: '#60a5fa', dark: '#2563eb' },
                         chat: { DEFAULT: '#06b6d4', light: '#22d3ee', dark: '#0891b2' },
-                        readme: { DEFAULT: '#ec4899', light: '#f472b6', dark: '#db2777' }
+                        readme: { DEFAULT: '#ec4899', light: '#f472b6', dark: '#db2777' },
+                        vision: { DEFAULT: '#f43f5e', light: '#fb7185', dark: '#e11d48' },
+                        internet: { DEFAULT: '#22c55e', light: '#4ade80', dark: '#16a34a' }
                     }
                 }
             }
@@ -96,6 +98,18 @@
             border: 1px solid rgba(59, 130, 246, 0.3);
         }
 
+        .badge-debug_visual {
+            background: rgba(244, 63, 94, 0.15);
+            color: #fb7185;
+            border: 1px solid rgba(244, 63, 94, 0.3);
+        }
+
+        .badge-vision {
+            background: rgba(244, 63, 94, 0.15);
+            color: #fb7185;
+            border: 1px solid rgba(244, 63, 94, 0.3);
+        }
+
         .tab {
             transition: all 0.2s;
             border-bottom: 2px solid transparent;
@@ -119,6 +133,11 @@
         .tab.active-chat {
             border-color: #06b6d4;
             color: #22d3ee;
+        }
+
+        .tab.active-vision {
+            border-color: #f43f5e;
+            color: #fb7185;
         }
 
         .terminal {
@@ -151,6 +170,10 @@
             border-color: #ec4899;
         }
 
+        .terminal-line.debug_visual {
+            border-color: #f43f5e;
+        }
+
         .terminal-line.tool {
             border-color: #3f3f46;
             background: rgba(0, 0, 0, 0.3);
@@ -170,6 +193,11 @@
             background: rgba(59, 130, 246, 0.1);
         }
 
+        .terminal-line.screenshot {
+            border-color: #f43f5e;
+            background: rgba(244, 63, 94, 0.1);
+        }
+
         .toggle {
             width: 36px;
             height: 20px;
@@ -184,6 +212,10 @@
             background: #8b5cf6;
         }
 
+        .toggle.active-internet {
+            background: #22c55e;
+        }
+
         .toggle::after {
             content: '';
             position: absolute;
@@ -196,7 +228,8 @@
             transition: 0.3s;
         }
 
-        .toggle.active::after {
+        .toggle.active::after,
+        .toggle.active-internet::after {
             left: 18px;
         }
 
@@ -314,6 +347,75 @@
         .git-btn.readme:hover {
             background: #db2777;
         }
+
+        .git-btn.vision {
+            background: #f43f5e;
+            border-color: #e11d48;
+        }
+
+        .git-btn.vision:hover {
+            background: #e11d48;
+        }
+
+        /* Screenshot Drop Zone */
+        .drop-zone {
+            border: 2px dashed #3f3f46;
+            border-radius: 8px;
+            transition: all 0.3s;
+        }
+
+        .drop-zone.drag-over {
+            border-color: #f43f5e;
+            background: rgba(244, 63, 94, 0.1);
+        }
+
+        .drop-zone:hover {
+            border-color: #52525b;
+        }
+
+        /* Screenshot Preview */
+        .screenshot-preview {
+            max-width: 100%;
+            max-height: 200px;
+            border-radius: 8px;
+            border: 1px solid #3f3f46;
+        }
+
+        .screenshot-thumbnail {
+            width: 120px;
+            height: 80px;
+            object-fit: cover;
+            border-radius: 4px;
+            border: 1px solid #3f3f46;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .screenshot-thumbnail:hover {
+            border-color: #f43f5e;
+            transform: scale(1.05);
+        }
+
+        /* Screenshot Modal */
+        .screenshot-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            cursor: pointer;
+        }
+
+        .screenshot-modal img {
+            max-width: 90%;
+            max-height: 90%;
+            border-radius: 8px;
+        }
     </style>
 </head>
 
@@ -325,7 +427,8 @@
             <div class="w-2 h-2 rounded-full bg-blue-500" style="box-shadow: 0 0 10px rgba(59,130,246,0.5)"></div>
             <span class="font-semibold text-sm">ORBIT</span>
             <span
-                class="text-[10px] text-zinc-500 px-2 py-0.5 border border-zinc-800 rounded bg-zinc-900/50 font-medium">v3.0</span>
+                class="text-[10px] text-zinc-500 px-2 py-0.5 border border-zinc-800 rounded bg-zinc-900/50 font-medium">v4.0</span>
+            <span class="text-[9px] text-rose-400 px-1.5 py-0.5 bg-rose-900/20 rounded border border-rose-800/30">VISION</span>
 
             <!-- Intent Badge -->
             <div id="intent-badge" class="intent-badge flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium">
@@ -344,6 +447,18 @@
 
         <!-- Control Panel -->
         <div class="flex items-center gap-4">
+            <!-- Internet Toggle V4 -->
+            <div class="flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" class="text-zinc-600" id="internet-icon">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="2" y1="12" x2="22" y2="12"></line>
+                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                </svg>
+                <span class="text-[10px] text-zinc-600 mono">INTERNET</span>
+                <div id="internet-toggle" class="toggle" onclick="toggleInternet()"></div>
+            </div>
+
             <!-- Model Selector -->
             <div class="flex items-center gap-2">
                 <span class="text-[10px] text-zinc-600 mono">MODEL</span>
@@ -365,6 +480,17 @@
                 <span>TOKENS:</span>
                 <span id="token-count" class="text-zinc-400">0</span>
             </div>
+
+            <!-- Vision Debug Button -->
+            <button onclick="openVisionModal()"
+                class="flex items-center gap-1 text-[10px] text-rose-400 border border-rose-700 hover:border-rose-500 bg-zinc-900 px-2 py-1 rounded hover:text-rose-300 transition-all">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+                VISION
+            </button>
 
             <!-- README Button -->
             <button onclick="generateSmartReadme()"
@@ -437,12 +563,20 @@
                     class="tab px-3 py-1.5 text-[11px] font-medium text-zinc-500 hover:text-chat-light flex items-center gap-1.5">
                     <span class="w-1.5 h-1.5 rounded-full bg-chat"></span>CHAT
                 </button>
+                <button onclick="switchTab('debug_visual')" id="tab-debug_visual"
+                    class="tab px-3 py-1.5 text-[11px] font-medium text-zinc-500 hover:text-vision-light flex items-center gap-1.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-vision"></span>VISION
+                </button>
             </div>
 
             <!-- Phase Indicator -->
-            <div class="h-8 flex items-center justify-center gap-4 border-b border-zinc-800/30 bg-black/30">
+            <div class="h-8 flex items-center justify-center gap-3 border-b border-zinc-800/30 bg-black/30">
                 <div id="phase-chat" class="phase-indicator flex items-center gap-1.5 text-[10px] mono text-zinc-600">
                     <span class="w-2 h-2 rounded-full bg-chat/30"></span>CHAT
+                </div>
+                <div class="text-zinc-700">|</div>
+                <div id="phase-debug_visual" class="phase-indicator flex items-center gap-1.5 text-[10px] mono text-zinc-600">
+                    <span class="w-2 h-2 rounded-full bg-vision/30"></span>VISION
                 </div>
                 <div class="text-zinc-700">|</div>
                 <div id="phase-boss" class="phase-indicator flex items-center gap-1.5 text-[10px] mono text-zinc-600">
@@ -466,17 +600,65 @@
             <!-- Terminal Output -->
             <div id="terminal" class="flex-1 overflow-y-auto p-3 space-y-2 text-[12px] mono">
                 <div class="terminal-line py-1.5 text-zinc-500 fade-in">
-                    ORBIT v3 ready. Modes: [CHAT] Conversation | [DEV] Code | [README] Doc
+                    ORBIT v4 ready. Modes: [CHAT] [DEV] [README] [DEBUG_VISUAL]
+                </div>
+                <div class="terminal-line py-1.5 text-rose-400/60 fade-in">
+                    Vision & Network Edition - Glissez un screenshot pour debug visuel
                 </div>
             </div>
 
-            <!-- Input Area -->
+            <!-- Input Area with Drop Zone -->
             <div class="p-3 border-t border-zinc-800/50 bg-zinc-900/30">
+                <!-- Screenshot Drop Zone -->
+                <div id="drop-zone" class="drop-zone p-3 mb-2 hidden">
+                    <div class="flex items-center justify-center gap-2 text-zinc-500 text-xs">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                            <polyline points="21 15 16 10 5 21"></polyline>
+                        </svg>
+                        <span>Deposez votre screenshot ici</span>
+                    </div>
+                </div>
+
+                <!-- Pending Screenshot Preview -->
+                <div id="pending-screenshot" class="hidden mb-2 p-2 bg-zinc-900 rounded-lg border border-zinc-800">
+                    <div class="flex items-center gap-2">
+                        <img id="pending-screenshot-img" src="" alt="Screenshot" class="screenshot-thumbnail">
+                        <div class="flex-1">
+                            <p class="text-xs text-zinc-400">Screenshot pret a envoyer</p>
+                            <p class="text-[10px] text-zinc-600">Ecrivez votre question et envoyez</p>
+                        </div>
+                        <button onclick="clearPendingScreenshot()" class="text-zinc-500 hover:text-red-400">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
                 <div class="relative">
                     <textarea id="user-input" rows="2"
-                        class="w-full bg-zinc-900 border border-zinc-800 text-white text-sm rounded-lg px-4 py-3 pr-12
+                        class="w-full bg-zinc-900 border border-zinc-800 text-white text-sm rounded-lg px-4 py-3 pr-24
                                focus:outline-none focus:border-zinc-700 transition-all placeholder-zinc-600 resize-none"
-                        placeholder="Decrivez votre projet ou posez une question..." onkeydown="handleKeydown(event)"></textarea>
+                        placeholder="Decrivez votre projet ou glissez un screenshot..." onkeydown="handleKeydown(event)"></textarea>
+
+                    <!-- Screenshot Button -->
+                    <button onclick="triggerScreenshotUpload()"
+                        class="absolute right-14 bottom-2 p-2 text-zinc-500 hover:text-rose-400 transition-all"
+                        title="Envoyer un screenshot">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                            <polyline points="21 15 16 10 5 21"></polyline>
+                        </svg>
+                    </button>
+                    <input type="file" id="screenshot-input" accept="image/*" class="hidden" onchange="handleScreenshotSelect(event)">
+
                     <button onclick="sendMessage()" id="send-btn" class="absolute right-2 bottom-2 p-2 bg-white text-black rounded-md
                                hover:bg-zinc-200 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
@@ -504,6 +686,10 @@
                     <button onclick="insertPrompt('Bonjour, qui es-tu?')"
                         class="text-[10px] text-cyan-600 hover:text-cyan-400 px-2 py-1 rounded bg-cyan-900/20 hover:bg-cyan-900/40 border border-cyan-800/50">
                         Chat
+                    </button>
+                    <button onclick="insertPrompt('Le bouton est mal centre, debug visuel')"
+                        class="text-[10px] text-rose-600 hover:text-rose-400 px-2 py-1 rounded bg-rose-900/20 hover:bg-rose-900/40 border border-rose-800/50">
+                        Debug Visual
                     </button>
                 </div>
             </div>
@@ -533,6 +719,16 @@
                         </svg>
                     </button>
                 </div>
+
+                <!-- Screenshot Button -->
+                <button onclick="takeScreenshotOfPreview()" class="ml-2 px-2 py-1 text-[10px] text-rose-400 border border-rose-800 rounded hover:bg-rose-900/30 transition-all flex items-center gap-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2">
+                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                        <circle cx="12" cy="13" r="4"></circle>
+                    </svg>
+                    Screenshot
+                </button>
 
                 <!-- Server Port Selector -->
                 <div id="server-selector" class="hidden ml-2 flex items-center gap-2">
@@ -759,6 +955,90 @@
         </div>
     </div>
 
+    <!-- Vision Modal V4 -->
+    <div id="vision-modal" class="fixed inset-0 modal-overlay hidden items-center justify-center z-50">
+        <div class="modal-content w-[500px] max-h-[80vh] overflow-hidden flex flex-col">
+            <!-- Modal Header -->
+            <div class="flex items-center justify-between p-4 border-b border-zinc-800">
+                <div class="flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" class="text-rose-400">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                        <circle cx="12" cy="12" r="3"></circle>
+                    </svg>
+                    <span class="font-semibold">Vision Debug</span>
+                </div>
+                <button onclick="closeVisionModal()" class="text-zinc-500 hover:text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Modal Body -->
+            <div class="p-4 space-y-4 overflow-y-auto flex-1">
+                <!-- Take Screenshot -->
+                <div class="space-y-2">
+                    <span class="text-xs text-zinc-500 mono">PRENDRE UN SCREENSHOT</span>
+                    <div class="flex gap-2">
+                        <input type="text" id="vision-url" placeholder="http://localhost:3000"
+                            class="flex-1 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-rose-600">
+                        <button onclick="takeVisionScreenshot()" class="git-btn vision">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2">
+                                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                                <circle cx="12" cy="13" r="4"></circle>
+                            </svg>
+                            Capturer
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Recent Screenshots -->
+                <div class="space-y-2">
+                    <span class="text-xs text-zinc-500 mono">SCREENSHOTS RECENTS</span>
+                    <div id="vision-screenshots" class="flex gap-2 flex-wrap">
+                        <div class="text-zinc-600 text-xs">Aucun screenshot</div>
+                    </div>
+                </div>
+
+                <!-- Known Bugs Memory -->
+                <div class="space-y-2 pt-2 border-t border-zinc-800">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs text-zinc-500 mono">MEMOIRE BUGS CONNUS</span>
+                        <span id="bugs-count" class="text-[10px] text-zinc-600">0 bugs</span>
+                    </div>
+                    <div id="known-bugs" class="bg-black/50 rounded-lg p-3 text-xs mono text-zinc-400 max-h-32 overflow-y-auto">
+                        Aucun bug enregistre
+                    </div>
+                </div>
+
+                <!-- Quick Debug -->
+                <div class="space-y-2">
+                    <span class="text-xs text-zinc-500 mono">DEBUG RAPIDE</span>
+                    <div class="flex gap-2">
+                        <input type="text" id="vision-problem" placeholder="Decrivez le probleme visuel..."
+                            class="flex-1 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-rose-600">
+                        <button onclick="startVisualDebug()" class="git-btn vision">
+                            Debug
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Modal Footer -->
+            <div id="vision-result" class="p-3 border-t border-zinc-800 text-xs mono text-zinc-500 hidden">
+            </div>
+        </div>
+    </div>
+
+    <!-- Screenshot Fullscreen Modal -->
+    <div id="screenshot-modal" class="screenshot-modal hidden" onclick="closeScreenshotModal()">
+        <img id="screenshot-modal-img" src="" alt="Screenshot">
+    </div>
+
     <script>
         // ═══════════════════════════════════════════════════════════════════
         // STATE
@@ -766,11 +1046,14 @@
         let isProcessing = false;
         let currentTab = 'all';
         let autopilot = true;
+        let internetEnabled = false;
         let totalTokens = 0;
         let currentIntent = null;
         let currentLoop = 0;
         let maxLoops = 5;
         let activeServerPort = null;
+        let pendingScreenshot = null; // Base64 du screenshot en attente
+        let recentScreenshots = []; // Liste des screenshots recents
 
         // DOM
         const terminal = document.getElementById('terminal');
@@ -787,6 +1070,96 @@
         const intentText = document.getElementById('intent-text');
         const loopCounter = document.getElementById('loop-counter');
         const loopText = document.getElementById('loop-text');
+        const dropZone = document.getElementById('drop-zone');
+
+        // ═══════════════════════════════════════════════════════════════════
+        // DRAG & DROP SCREENSHOT
+        // ═══════════════════════════════════════════════════════════════════
+
+        // Setup drag and drop
+        document.addEventListener('DOMContentLoaded', () => {
+            const inputArea = userInput.parentElement.parentElement;
+
+            inputArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('hidden');
+                dropZone.classList.add('drag-over');
+            });
+
+            inputArea.addEventListener('dragleave', (e) => {
+                if (!inputArea.contains(e.relatedTarget)) {
+                    dropZone.classList.add('hidden');
+                    dropZone.classList.remove('drag-over');
+                }
+            });
+
+            inputArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('hidden');
+                dropZone.classList.remove('drag-over');
+
+                const files = e.dataTransfer.files;
+                if (files.length > 0 && files[0].type.startsWith('image/')) {
+                    handleScreenshotFile(files[0]);
+                }
+            });
+        });
+
+        function triggerScreenshotUpload() {
+            document.getElementById('screenshot-input').click();
+        }
+
+        function handleScreenshotSelect(event) {
+            const file = event.target.files[0];
+            if (file && file.type.startsWith('image/')) {
+                handleScreenshotFile(file);
+            }
+        }
+
+        function handleScreenshotFile(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const base64 = e.target.result.split(',')[1]; // Remove data:image/...;base64, prefix
+                pendingScreenshot = base64;
+
+                // Show preview
+                document.getElementById('pending-screenshot').classList.remove('hidden');
+                document.getElementById('pending-screenshot-img').src = e.target.result;
+
+                // Update placeholder
+                userInput.placeholder = "Decrivez le probleme visuel...";
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function clearPendingScreenshot() {
+            pendingScreenshot = null;
+            document.getElementById('pending-screenshot').classList.add('hidden');
+            userInput.placeholder = "Decrivez votre projet ou glissez un screenshot...";
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // INTERNET TOGGLE
+        // ═══════════════════════════════════════════════════════════════════
+
+        function toggleInternet() {
+            internetEnabled = !internetEnabled;
+            const toggle = document.getElementById('internet-toggle');
+            const icon = document.getElementById('internet-icon');
+
+            if (internetEnabled) {
+                toggle.classList.add('active-internet');
+                icon.classList.remove('text-zinc-600');
+                icon.classList.add('text-green-400');
+            } else {
+                toggle.classList.remove('active-internet');
+                icon.classList.remove('text-green-400');
+                icon.classList.add('text-zinc-600');
+            }
+
+            updateConfig();
+            addTerminalLine('', `<span class="text-zinc-500">Internet: ${internetEnabled ? '<span class="text-green-400">ON</span>' : '<span class="text-zinc-600">OFF</span>'}</span>`, '');
+        }
 
         // ═══════════════════════════════════════════════════════════════════
         // INTENT DISPLAY
@@ -808,6 +1181,10 @@
                 intentBadge.className = 'intent-badge visible flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium badge-readme';
                 intentIcon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path></svg>';
                 intentText.textContent = 'README';
+            } else if (intent === 'DEBUG_VISUAL') {
+                intentBadge.className = 'intent-badge visible flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium badge-debug_visual';
+                intentIcon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
+                intentText.textContent = 'VISION';
             }
         }
 
@@ -839,10 +1216,33 @@
             else if (agent === 'chat') badge = '<span class="badge-chat text-[9px] px-1.5 py-0.5 rounded mr-2">CHAT</span>';
             else if (agent === 'readme') badge = '<span class="badge-readme text-[9px] px-1.5 py-0.5 rounded mr-2">README</span>';
             else if (agent === 'loop') badge = '<span class="badge-loop text-[9px] px-1.5 py-0.5 rounded mr-2">LOOP</span>';
+            else if (agent === 'debug_visual') badge = '<span class="badge-debug_visual text-[9px] px-1.5 py-0.5 rounded mr-2">VISION</span>';
 
             line.innerHTML = badge + formatContent(content);
             terminal.appendChild(line);
             terminal.scrollTop = terminal.scrollHeight;
+
+            filterByTab();
+        }
+
+        function addScreenshotLine(filename) {
+            const line = document.createElement('div');
+            line.className = 'terminal-line py-2 fade-in screenshot';
+            line.dataset.agent = 'debug_visual';
+
+            line.innerHTML = `
+                <span class="badge-vision text-[9px] px-1.5 py-0.5 rounded mr-2">SCREENSHOT</span>
+                <img src="/screenshot/${filename}" alt="Screenshot" class="screenshot-thumbnail" onclick="showScreenshotModal('/screenshot/${filename}')">
+                <span class="text-zinc-500 text-[10px] ml-2">${filename}</span>
+            `;
+
+            terminal.appendChild(line);
+            terminal.scrollTop = terminal.scrollHeight;
+
+            // Add to recent screenshots
+            recentScreenshots.unshift(filename);
+            recentScreenshots = recentScreenshots.slice(0, 5);
+            updateVisionScreenshots();
 
             filterByTab();
         }
@@ -865,6 +1265,11 @@
                 .replace(/\[REVIEW\]/g, '<span class="text-reviewer-light font-medium">[REVIEW]</span>')
                 .replace(/\[CHECKLIST\]/g, '<span class="text-reviewer-light font-medium">[CHECKLIST]</span>')
                 .replace(/\[VERDICT\]/g, '<span class="text-reviewer-light font-medium">[VERDICT]</span>')
+                .replace(/\[CAPTURE\]/g, '<span class="text-rose-400 font-medium">[CAPTURE]</span>')
+                .replace(/\[ANALYSE_VISUELLE\]/g, '<span class="text-rose-400 font-medium">[ANALYSE_VISUELLE]</span>')
+                .replace(/\[CORRELATION_CODE\]/g, '<span class="text-rose-400 font-medium">[CORRELATION_CODE]</span>')
+                .replace(/\[FIX\]/g, '<span class="text-rose-400 font-medium">[FIX]</span>')
+                .replace(/\[VERIFICATION\]/g, '<span class="text-rose-400 font-medium">[VERIFICATION]</span>')
                 .replace(/APPROUVE/g, '<span class="text-green-400 font-medium">APPROUVE</span>')
                 .replace(/CORRECTIONS/g, '<span class="text-red-400 font-medium">CORRECTIONS</span>')
                 .replace(/\[x\]/g, '<span class="text-reviewer">OK</span>')
@@ -878,11 +1283,24 @@
         }
 
         // ═══════════════════════════════════════════════════════════════════
+        // SCREENSHOT MODAL
+        // ═══════════════════════════════════════════════════════════════════
+
+        function showScreenshotModal(src) {
+            document.getElementById('screenshot-modal-img').src = src;
+            document.getElementById('screenshot-modal').classList.remove('hidden');
+        }
+
+        function closeScreenshotModal() {
+            document.getElementById('screenshot-modal').classList.add('hidden');
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
         // PHASE INDICATOR
         // ═══════════════════════════════════════════════════════════════════
 
         function setPhase(phase) {
-            ['chat', 'boss', 'coder', 'reviewer', 'git', 'readme'].forEach(p => {
+            ['chat', 'boss', 'coder', 'reviewer', 'git', 'readme', 'debug_visual'].forEach(p => {
                 const el = document.getElementById(`phase-${p}`);
                 if (el) {
                     el.classList.remove('active', 'text-white');
@@ -897,7 +1315,8 @@
                             coder: '#fbbf24',
                             reviewer: '#34d399',
                             git: '#f87171',
-                            readme: '#f472b6'
+                            readme: '#f472b6',
+                            debug_visual: '#fb7185'
                         };
                         el.style.color = colors[p] || '';
                     } else {
@@ -915,12 +1334,14 @@
         function switchTab(tab) {
             currentTab = tab;
             document.querySelectorAll('.tab').forEach(t => {
-                t.classList.remove('active-boss', 'active-coder', 'active-reviewer', 'active-chat');
+                t.classList.remove('active-boss', 'active-coder', 'active-reviewer', 'active-chat', 'active-vision');
                 t.classList.add('text-zinc-500');
             });
             const activeTab = document.getElementById(`tab-${tab}`);
-            activeTab.classList.remove('text-zinc-500');
-            activeTab.classList.add(`active-${tab === 'all' ? 'boss' : tab}`);
+            if (activeTab) {
+                activeTab.classList.remove('text-zinc-500');
+                activeTab.classList.add(`active-${tab === 'all' ? 'boss' : (tab === 'debug_visual' ? 'vision' : tab)}`);
+            }
             filterByTab();
         }
 
@@ -949,7 +1370,7 @@
             await fetch('/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ autopilot, model })
+                body: JSON.stringify({ autopilot, model, internet_enabled: internetEnabled })
             });
         }
 
@@ -966,13 +1387,19 @@
 
         async function sendMessage() {
             const text = userInput.value.trim();
-            if (!text || isProcessing) return;
+            if (!text && !pendingScreenshot) return;
+            if (isProcessing) return;
 
             isProcessing = true;
             sendBtn.disabled = true;
             userInput.value = '';
 
-            addTerminalLine('', `<span class="text-white bg-zinc-800 px-2 py-1 rounded">${text}</span>`, '');
+            // Show user message
+            let userDisplay = text;
+            if (pendingScreenshot) {
+                userDisplay = `<span class="text-rose-400">[Screenshot]</span> ${text || 'Analyse ce screenshot'}`;
+            }
+            addTerminalLine('', `<span class="text-white bg-zinc-800 px-2 py-1 rounded">${userDisplay}</span>`, '');
 
             loadingOverlay.classList.remove('hidden');
             loadingOverlay.style.display = 'flex';
@@ -982,11 +1409,19 @@
             hideLoopCounter();
 
             try {
+                const body = { message: text || 'Analyse ce screenshot et identifie les problemes' };
+                if (pendingScreenshot) {
+                    body.screenshot = pendingScreenshot;
+                }
+
                 const response = await fetch('/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: text })
+                    body: JSON.stringify(body)
                 });
+
+                // Clear pending screenshot after sending
+                clearPendingScreenshot();
 
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
@@ -1056,6 +1491,18 @@
                     addToolLine(event.agent, event.tool, event.success, detail);
                     break;
 
+                case 'screenshot':
+                    if (event.filename) {
+                        addScreenshotLine(event.filename);
+                    }
+                    break;
+
+                case 'memory_hint':
+                    if (event.bug) {
+                        addTerminalLine('', `<span class="text-yellow-400">[MEMOIRE] Bug similaire: ${event.bug.symptom}</span>`, '');
+                    }
+                    break;
+
                 case 'agent_complete':
                     break;
 
@@ -1105,6 +1552,34 @@
             }
         }
 
+        async function takeScreenshotOfPreview() {
+            const url = urlDisplay.value;
+            if (!url || url === 'about:blank') {
+                addTerminalLine('', '<span class="text-red-400">Aucune page a capturer</span>', 'error');
+                return;
+            }
+
+            addTerminalLine('debug_visual', `Capture de ${url}...`, '');
+
+            try {
+                const res = await fetch('/vision/screenshot', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    addScreenshotLine(data.filename);
+                    addTerminalLine('debug_visual', `<span class="text-green-400">Screenshot: ${data.filename}</span>`, 'success');
+                } else {
+                    addTerminalLine('debug_visual', `<span class="text-red-400">Erreur: ${data.error}</span>`, 'error');
+                }
+            } catch (e) {
+                addTerminalLine('debug_visual', `<span class="text-red-400">Erreur: ${e.message}</span>`, 'error');
+            }
+        }
+
         async function updateServerSelector() {
             try {
                 const res = await fetch('/servers');
@@ -1150,6 +1625,114 @@
 
             userInput.value = 'Genere un README.md complet pour ce projet';
             sendMessage();
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // VISION MODAL V4
+        // ═══════════════════════════════════════════════════════════════════
+
+        function openVisionModal() {
+            document.getElementById('vision-modal').classList.remove('hidden');
+            document.getElementById('vision-modal').style.display = 'flex';
+            loadKnownBugs();
+            updateVisionScreenshots();
+
+            // Pre-fill URL from preview if available
+            if (urlDisplay.value && urlDisplay.value !== 'about:blank') {
+                document.getElementById('vision-url').value = urlDisplay.value;
+            } else {
+                document.getElementById('vision-url').value = 'http://localhost:3000';
+            }
+        }
+
+        function closeVisionModal() {
+            document.getElementById('vision-modal').classList.add('hidden');
+            document.getElementById('vision-modal').style.display = 'none';
+        }
+
+        async function takeVisionScreenshot() {
+            const url = document.getElementById('vision-url').value.trim();
+            if (!url) return;
+
+            showVisionResult('Capture en cours...', true);
+
+            try {
+                const res = await fetch('/vision/screenshot', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    showVisionResult(`Screenshot: ${data.filename}`, true);
+                    recentScreenshots.unshift(data.filename);
+                    recentScreenshots = recentScreenshots.slice(0, 5);
+                    updateVisionScreenshots();
+                    addScreenshotLine(data.filename);
+                } else {
+                    showVisionResult(`Erreur: ${data.error}`, false);
+                }
+            } catch (e) {
+                showVisionResult(`Erreur: ${e.message}`, false);
+            }
+        }
+
+        function updateVisionScreenshots() {
+            const container = document.getElementById('vision-screenshots');
+            if (recentScreenshots.length === 0) {
+                container.innerHTML = '<div class="text-zinc-600 text-xs">Aucun screenshot</div>';
+                return;
+            }
+
+            container.innerHTML = recentScreenshots.map(filename =>
+                `<img src="/screenshot/${filename}" alt="${filename}" class="screenshot-thumbnail" onclick="showScreenshotModal('/screenshot/${filename}')">`
+            ).join('');
+        }
+
+        async function loadKnownBugs() {
+            try {
+                const res = await fetch('/memory/bugs');
+                const data = await res.json();
+
+                document.getElementById('bugs-count').textContent = `${data.count} bugs`;
+
+                if (data.bugs && data.bugs.length > 0) {
+                    document.getElementById('known-bugs').innerHTML = data.bugs.slice(0, 5).map(bug =>
+                        `<div class="mb-2 pb-2 border-b border-zinc-800 last:border-0">
+                            <div class="text-rose-400">${bug.symptom.substring(0, 50)}...</div>
+                            <div class="text-zinc-500 text-[10px]">${bug.solution.substring(0, 80)}...</div>
+                        </div>`
+                    ).join('');
+                } else {
+                    document.getElementById('known-bugs').innerHTML = 'Aucun bug enregistre';
+                }
+            } catch (e) {
+                document.getElementById('known-bugs').innerHTML = 'Erreur de chargement';
+            }
+        }
+
+        async function startVisualDebug() {
+            const problem = document.getElementById('vision-problem').value.trim();
+            if (!problem) return;
+
+            closeVisionModal();
+            userInput.value = problem;
+
+            // Force DEBUG_VISUAL mode by adding visual keyword
+            if (!problem.toLowerCase().includes('debug') && !problem.toLowerCase().includes('visuel')) {
+                userInput.value = `Debug visuel: ${problem}`;
+            }
+
+            sendMessage();
+        }
+
+        function showVisionResult(msg, success) {
+            const el = document.getElementById('vision-result');
+            el.classList.remove('hidden');
+            el.className = `p-3 border-t border-zinc-800 text-xs mono ${success ? 'text-green-400' : 'text-red-400'}`;
+            el.textContent = msg;
+            setTimeout(() => el.classList.add('hidden'), 3000);
         }
 
         // ═══════════════════════════════════════════════════════════════════
@@ -1294,45 +1877,6 @@
         }
 
         // ═══════════════════════════════════════════════════════════════════
-        // UTILS
-        // ═══════════════════════════════════════════════════════════════════
-
-        function handleKeydown(e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
-            }
-        }
-
-        function insertPrompt(text) {
-            userInput.value = text;
-            userInput.focus();
-        }
-
-        async function resetAll() {
-            if (!confirm('Reinitialiser?')) return;
-            await fetch('/reset', { method: 'POST' });
-            terminal.innerHTML = '<div class="terminal-line py-1.5 text-zinc-500 fade-in">ORBIT v3 reinitialise.</div>';
-            previewFrame.src = 'about:blank';
-            urlDisplay.value = 'about:blank';
-            emptyState.classList.remove('hidden');
-            totalTokens = 0;
-            tokenCount.textContent = '0';
-            intentBadge.classList.remove('visible');
-            hideLoopCounter();
-            updateServerSelector();
-        }
-
-        // Close modal on outside click
-        document.getElementById('git-modal').addEventListener('click', function (e) {
-            if (e.target === this) closeGitModal();
-        });
-
-        document.getElementById('project-modal').addEventListener('click', function (e) {
-            if (e.target === this) closeProjectModal();
-        });
-
-        // ═══════════════════════════════════════════════════════════════════
         // PROJECT MANAGEMENT
         // ═══════════════════════════════════════════════════════════════════
 
@@ -1457,6 +2001,61 @@
                 document.getElementById('current-project-name').textContent = data.name;
             } catch (e) { }
         }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // UTILS
+        // ═══════════════════════════════════════════════════════════════════
+
+        function handleKeydown(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        }
+
+        function insertPrompt(text) {
+            userInput.value = text;
+            userInput.focus();
+        }
+
+        async function resetAll() {
+            if (!confirm('Reinitialiser?')) return;
+            await fetch('/reset', { method: 'POST' });
+            terminal.innerHTML = '<div class="terminal-line py-1.5 text-zinc-500 fade-in">ORBIT v4 reinitialise.</div>';
+            previewFrame.src = 'about:blank';
+            urlDisplay.value = 'about:blank';
+            emptyState.classList.remove('hidden');
+            totalTokens = 0;
+            tokenCount.textContent = '0';
+            intentBadge.classList.remove('visible');
+            hideLoopCounter();
+            updateServerSelector();
+            recentScreenshots = [];
+            clearPendingScreenshot();
+        }
+
+        // Close modal on outside click
+        document.getElementById('git-modal').addEventListener('click', function (e) {
+            if (e.target === this) closeGitModal();
+        });
+
+        document.getElementById('project-modal').addEventListener('click', function (e) {
+            if (e.target === this) closeProjectModal();
+        });
+
+        document.getElementById('vision-modal').addEventListener('click', function (e) {
+            if (e.target === this) closeVisionModal();
+        });
+
+        // ESC to close modals
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeGitModal();
+                closeProjectModal();
+                closeVisionModal();
+                closeScreenshotModal();
+            }
+        });
 
         // Init
         userInput.focus();
