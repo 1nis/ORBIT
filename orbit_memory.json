@@ -1,5 +1,5 @@
 {
-  "saved_at": "2026-01-22T10:43:25.968601",
+  "saved_at": "2026-01-22T11:02:06.896180",
   "workspace": "C:\\Users\\elpip\\OneDrive\\Bureau\\Projects\\Orbit",
   "version": "4.0",
   "boss": [],
@@ -7,13 +7,20 @@
   "reviewer": [],
   "chat_history": [],
   "files": [
+    "README.md",
     "README.md"
   ],
   "project_summary": "",
   "known_bugs_fixes": [],
   "usage": {
-    "total_input_tokens": 0,
-    "total_output_tokens": 0,
-    "calls": []
+    "total_input_tokens": 2667,
+    "total_output_tokens": 191,
+    "calls": [
+      {
+        "agent": "boss",
+        "in": 2667,
+        "out": 191
+      }
+    ]
   }
 }
