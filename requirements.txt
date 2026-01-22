@@ -1,5 +1,7 @@
 flask
+flask-cors
 anthropic
 python-dotenv
-flask-cors
 colorama
+playwright
+duckduckgo-search

@@ -1,7 +1,7 @@
 {
-  "saved_at": "2026-01-21T21:08:18.718941",
-  "workspace": "C:\\Users\\elpip\\Desktop\\Projets\\Orbit",
-  "version": "3.0",
+  "saved_at": "2026-01-22T10:43:25.968601",
+  "workspace": "C:\\Users\\elpip\\OneDrive\\Bureau\\Projects\\Orbit",
+  "version": "4.0",
   "boss": [],
   "coder": [],
   "reviewer": [],
@@ -10,15 +10,10 @@
     "README.md"
   ],
   "project_summary": "",
+  "known_bugs_fixes": [],
   "usage": {
-    "total_input_tokens": 2022,
-    "total_output_tokens": 271,
-    "calls": [
-      {
-        "agent": "boss",
-        "in": 2022,
-        "out": 271
-      }
-    ]
+    "total_input_tokens": 0,
+    "total_output_tokens": 0,
+    "calls": []
   }
 }
