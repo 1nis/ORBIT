@@ -636,19 +636,56 @@ class IntentClassifier:
     CHAT_KEYWORDS = [
         "bonjour", "salut", "hello", "hi", "hey", "merci", "thanks",
         "comment ca va", "how are you", "qui es-tu", "who are you",
-        "explique", "explain", "c'est quoi", "what is", "pourquoi",
-        "aide", "help", "question", "opinion", "avis", "penses-tu",
-        "raconte", "dis-moi", "parle-moi"
+        "c'est quoi", "what is", "pourquoi", "why",
+        "opinion", "avis", "penses-tu", "think",
+        "raconte", "parle-moi", "tell me about"
     ]
 
+    # ══════════════════════════════════════════════════════════════════════════════
+    # DEV_KEYWORDS - Version étendue pour éviter le "Chat Trap"
+    # ══════════════════════════════════════════════════════════════════════════════
     DEV_KEYWORDS = [
-        "cree", "create", "code", "developpe", "build", "fais", "make",
-        "ajoute", "add", "modifie", "modify", "change", "update",
-        "corrige", "fix", "bug", "erreur", "error", "debug",
-        "implemente", "implement", "ecris", "write", "genere", "generate",
-        "supprime", "delete", "remove", "refactor", "optimise",
-        "landing page", "dashboard", "api", "component", "fonction",
-        "jeu", "game", "app", "application", "site", "website"
+        # Verbes de création
+        "cree", "create", "code", "developpe", "build", "make", "genere", "generate",
+        "ecris", "write", "implemente", "implement", "initialise", "init", "setup",
+
+        # Verbes d'action IMPERATIFS (anti Chat Trap)
+        "fais", "faire", "lance", "lancer", "run", "start", "execute", "deploy",
+        "test", "teste", "tester", "check", "verifie", "verifier", "verify",
+        "repare", "reparer", "repair", "assure", "ensure",
+
+        # Verbes de modification
+        "ajoute", "add", "modifie", "modify", "change", "update", "met a jour",
+        "corrige", "fix", "bug", "erreur", "error", "debug", "resous", "resolve",
+        "supprime", "delete", "remove", "refactor", "optimise", "optimize",
+        "ameliore", "improve", "enhance", "upgrade",
+
+        # États et résultats attendus (anti Chat Trap)
+        "marche", "fonctionne", "works", "working", "fonctionner",
+        "ne marche pas", "doesn't work", "not working", "broken", "casse",
+        "manque", "missing", "absent", "needs", "besoin",
+
+        # Termes techniques généraux
+        "landing page", "dashboard", "api", "component", "composant", "fonction", "function",
+        "jeu", "game", "app", "application", "site", "website", "page", "route", "endpoint",
+        "formulaire", "form", "bouton", "button", "modal", "popup", "menu", "navbar",
+        "database", "base de donnees", "table", "schema", "model", "modele",
+
+        # Termes spécifiques projet (Drag & Drop, Upload, etc.)
+        "drag", "drop", "drag and drop", "glisser", "deposer",
+        "upload", "telecharger", "download", "import", "export",
+        "parse", "parser", "analyser", "analyze", "process", "traiter",
+        "csv", "json", "pdf", "excel", "fichier", "file",
+
+        # Intégrations et outils
+        "git", "commit", "push", "pull", "github", "deploy", "deployer",
+        "npm", "pip", "install", "package", "dependency", "dependance",
+        "server", "serveur", "port", "localhost", "preview",
+
+        # Actions conditionnelles (souvent formulées en questions)
+        "tu peux", "can you", "peux-tu", "could you", "would you",
+        "il faut", "need to", "should", "devrait", "doit",
+        "fais en sorte", "make sure", "ensure that", "assure-toi"
     ]
 
     README_KEYWORDS = [
@@ -665,41 +702,87 @@ class IntentClassifier:
         "probleme d'affichage", "display issue", "rendu incorrect"
     ]
 
+    # Patterns qui FORCENT le mode DEV même avec un "?"
+    ACTION_PATTERNS = [
+        "tu peux", "peux-tu", "can you", "could you",
+        "fais en sorte", "make sure", "il faut", "need to",
+        "je veux que", "i want you to", "assure-toi", "ensure"
+    ]
+
     @classmethod
     def classify(cls, message: str) -> str:
         """Classifie le message en CHAT, DEV, README ou DEBUG_VISUAL."""
         msg_lower = message.lower()
 
-        # Verifier DEBUG_VISUAL en premier (plus specifique)
+        # ══════════════════════════════════════════════════════════════════════════
+        # ETAPE 1: Vérifier DEBUG_VISUAL en premier (plus spécifique)
+        # ══════════════════════════════════════════════════════════════════════════
         for keyword in cls.DEBUG_VISUAL_KEYWORDS:
             if keyword in msg_lower:
                 return "DEBUG_VISUAL"
 
-        # Verifier README
+        # ══════════════════════════════════════════════════════════════════════════
+        # ETAPE 2: Vérifier README
+        # ══════════════════════════════════════════════════════════════════════════
         for keyword in cls.README_KEYWORDS:
             if keyword in msg_lower:
                 return "README"
 
-        # Compter les mots-cles DEV
-        dev_score = sum(1 for kw in cls.DEV_KEYWORDS if kw in msg_lower)
+        # ══════════════════════════════════════════════════════════════════════════
+        # ETAPE 3: Détecter les "Action Patterns" (anti Chat Trap)
+        # Ces patterns indiquent une demande d'action même si formulée en question
+        # ══════════════════════════════════════════════════════════════════════════
+        has_action_pattern = any(pattern in msg_lower for pattern in cls.ACTION_PATTERNS)
 
-        # Compter les mots-cles CHAT
+        # ══════════════════════════════════════════════════════════════════════════
+        # ETAPE 4: Compter les scores
+        # ══════════════════════════════════════════════════════════════════════════
+        dev_score = sum(1 for kw in cls.DEV_KEYWORDS if kw in msg_lower)
         chat_score = sum(1 for kw in cls.CHAT_KEYWORDS if kw in msg_lower)
 
-        # Si le message est tres court et conversationnel
-        if len(message) < 20 and chat_score > 0:
-            return "CHAT"
+        # Bonus pour les action patterns
+        if has_action_pattern:
+            dev_score += 3  # Boost significatif
 
-        # Si beaucoup de mots-cles DEV
-        if dev_score >= 2 or (dev_score > chat_score and dev_score > 0):
+        # ══════════════════════════════════════════════════════════════════════════
+        # ETAPE 5: Logique de décision améliorée
+        # ══════════════════════════════════════════════════════════════════════════
+
+        # Si action pattern détecté + au moins 1 keyword DEV -> DEV (même avec ?)
+        if has_action_pattern and dev_score >= 3:
             return "DEV"
 
-        # Si question ou conversation
-        if '?' in message or chat_score > dev_score:
+        # Si le message est très court ET purement conversationnel (salutations)
+        if len(message) < 15 and chat_score > 0 and dev_score == 0:
             return "CHAT"
 
-        # Par defaut, si le message parle de creation/modification -> DEV
+        # Si score DEV élevé -> DEV
+        if dev_score >= 2:
+            return "DEV"
+
+        # Si DEV > CHAT -> DEV
+        if dev_score > chat_score and dev_score > 0:
+            return "DEV"
+
+        # Si le message contient "?" MAIS a des keywords DEV -> probablement DEV
+        # (ex: "Tu peux lancer le serveur?" = DEV, pas CHAT)
+        if '?' in message and dev_score > 0:
+            return "DEV"
+
+        # Si question pure sans keyword DEV -> CHAT
+        if '?' in message and dev_score == 0:
+            return "CHAT"
+
+        # Si conversation > dev -> CHAT
+        if chat_score > dev_score:
+            return "CHAT"
+
+        # Par défaut: si au moins 1 keyword DEV -> DEV
         if dev_score > 0:
+            return "DEV"
+
+        # Fallback: messages ambigus -> DEV (mieux vaut agir que bavarder)
+        if len(message) > 20:
             return "DEV"
 
         return "CHAT"
@@ -1163,18 +1246,61 @@ REGLES:
 
 CODER_PROMPT = """Tu es le CODER d'ORBIT v4 sur Windows PowerShell.
 
-OUTILS: write_file, read_file, run_command, list_files, smart_search, find_function, start_server, take_screenshot, web_search (si Internet active)
+═══════════════════════════════════════════════════════════════════════════════
+TES OUTILS
+═══════════════════════════════════════════════════════════════════════════════
+write_file, read_file, run_command, list_files, smart_search, find_function,
+start_server, take_screenshot, web_search (si Internet active)
 
-REGLES:
+═══════════════════════════════════════════════════════════════════════════════
+TA MISSION
+═══════════════════════════════════════════════════════════════════════════════
+Executer le plan du BOSS. Tu as 6 tours pour reussir.
+
+═══════════════════════════════════════════════════════════════════════════════
+REGLES STRICTES - VERIFICATION DE LOGS (CRITIQUE)
+═══════════════════════════════════════════════════════════════════════════════
+APRES CHAQUE run_command, LIS ATTENTIVEMENT LA SORTIE.
+
+Si tu vois UN de ces patterns dans le resultat:
+  - "Error", "ERROR", "error:"
+  - "Exception", "Traceback"
+  - "Failed", "FAILED", "failed to"
+  - "undefined", "null", "NaN"
+  - "Cannot", "cannot", "can't"
+  - "Module not found", "ModuleNotFoundError"
+  - "SyntaxError", "TypeError", "ReferenceError"
+  - "ENOENT", "EACCES", "EPERM"
+  - Stack trace (lignes avec "at " ou "File ")
+
+ALORS:
+  1. NE PASSE PAS a la suite
+  2. ANALYSE l'erreur immediatement (quelle ligne? quel fichier?)
+  3. CORRIGE le fichier coupable avec write_file
+  4. RELANCE la commande pour verifier la correction
+  5. Utilise save_bug_fix si c'etait un bug complexe
+
+NE SUPPOSE JAMAIS que ca marche. VERIFIE TOUJOURS.
+
+═══════════════════════════════════════════════════════════════════════════════
+BONNES PRATIQUES DEV
+═══════════════════════════════════════════════════════════════════════════════
 - Separe HTML/CSS/JS en fichiers distincts
-- PowerShell: utilise 'dir' pas 'ls', 'type' pas 'cat'
+- PowerShell: utilise 'dir' (pas 'ls'), 'type' (pas 'cat')
 - Dark mode par defaut pour les UI
-- Pas de signature/credit
-- Si erreur -> analyse et corrige immediatement
-- Pour les apps React/Node, utilise start_server pour le preview
-- Quand tu corriges un bug difficile, utilise save_bug_fix pour sauvegarder la solution
+- Pas de signature/credit dans le code
+- Pour React/Node: utilise start_server pour verifier que ca tourne
+- Apres npm install: verifie qu'il n'y a pas de vulnerabilites critiques
 
-FORMAT: [ACTION] description [EXECUTION] ce que tu fais [RESULTAT] resultat"""
+═══════════════════════════════════════════════════════════════════════════════
+FORMAT DE REPONSE
+═══════════════════════════════════════════════════════════════════════════════
+[ACTION] Description courte de ce que tu fais
+[EXECUTION] Outil utilise et parametres
+[RESULTAT] Analyse du resultat:
+  - Si SUCCES: "OK - [description]"
+  - Si ERREUR: "ERREUR DETECTEE - [type d'erreur] - Correction en cours..."
+"""
 
 REVIEWER_PROMPT = """Tu es le REVIEWER d'ORBIT v4. Tu verifies le code.
 
