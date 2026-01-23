@@ -2128,18 +2128,123 @@ memory_manager.load(orchestrator)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def generate_commit_message() -> Optional[str]:
+    """
+    Génère un message de commit sémantique via l'IA basé sur git diff.
+    Format: Conventional Commits (feat:, fix:, refactor:, docs:, chore:, etc.)
+    """
     if not SystemHealth.git_available:
         return None
-    result = subprocess.run(
+
+    # Étape 1: Vérifier s'il y a des changements
+    status_result = subprocess.run(
         ["powershell", "-Command", "git status --porcelain"],
         capture_output=True, text=True, cwd=WORKSPACE_DIR
     )
-    if result.returncode != 0 or not result.stdout.strip():
+    if status_result.returncode != 0 or not status_result.stdout.strip():
         return None
-    lines = result.stdout.strip().split('\n')
-    if len(lines) == 0:
-        return None
-    return f"chore: update {len(lines)} files"
+
+    # Étape 2: Récupérer le diff (staged + unstaged)
+    diff_result = subprocess.run(
+        ["powershell", "-Command", "git diff HEAD --stat && echo '---DIFF---' && git diff HEAD"],
+        capture_output=True, text=True, cwd=WORKSPACE_DIR
+    )
+
+    diff_content = diff_result.stdout.strip() if diff_result.stdout else ""
+
+    # Si pas de diff HEAD, essayer diff staged
+    if not diff_content or diff_content == "---DIFF---":
+        diff_result = subprocess.run(
+            ["powershell", "-Command", "git diff --cached --stat && echo '---DIFF---' && git diff --cached"],
+            capture_output=True, text=True, cwd=WORKSPACE_DIR
+        )
+        diff_content = diff_result.stdout.strip() if diff_result.stdout else ""
+
+    # Fallback: utiliser status si pas de diff
+    if not diff_content or diff_content == "---DIFF---":
+        diff_content = f"Files changed:\n{status_result.stdout.strip()}"
+
+    # Limiter à 3000 caractères pour économiser les tokens
+    MAX_DIFF_CHARS = 3000
+    if len(diff_content) > MAX_DIFF_CHARS:
+        diff_content = diff_content[:MAX_DIFF_CHARS] + "\n\n[... diff truncated ...]"
+
+    # Étape 3: Générer le message via l'IA
+    if not client:
+        # Fallback si pas de client IA
+        lines = status_result.stdout.strip().split('\n')
+        return f"chore: update {len(lines)} files"
+
+    try:
+        model = CONFIG["models"].get("classifier", Config.DEFAULT_MODEL)
+
+        response = client.messages.create(
+            model=model,
+            max_tokens=100,
+            system="""You are a Git commit message generator. Generate a single-line commit message following Conventional Commits format.
+
+FORMAT: <type>: <short description>
+
+TYPES:
+- feat: new feature or functionality
+- fix: bug fix
+- refactor: code refactoring without behavior change
+- docs: documentation changes
+- style: formatting, missing semicolons, etc.
+- test: adding or updating tests
+- chore: maintenance, dependencies, config
+- perf: performance improvements
+
+RULES:
+- Message must be in English
+- Maximum 72 characters
+- Use imperative mood ("add" not "added")
+- Be specific but concise
+- No period at the end
+- Respond ONLY with the commit message, nothing else""",
+            messages=[{
+                "role": "user",
+                "content": f"Generate a commit message for these changes:\n\n{diff_content}"
+            }]
+        )
+
+        commit_msg = response.content[0].text.strip()
+
+        # Validation: s'assurer que le message suit le format
+        valid_prefixes = ("feat:", "fix:", "refactor:", "docs:", "style:", "test:", "chore:", "perf:", "build:", "ci:")
+        if not any(commit_msg.lower().startswith(prefix) for prefix in valid_prefixes):
+            # Ajouter un préfixe par défaut si l'IA n'en a pas mis
+            commit_msg = f"chore: {commit_msg}"
+
+        # Limiter la longueur
+        if len(commit_msg) > 72:
+            commit_msg = commit_msg[:69] + "..."
+
+        logger.info(f"[GIT] AI commit message: {commit_msg}")
+        return commit_msg
+
+    except Exception as e:
+        logger.warning(f"[GIT] AI commit generation failed: {e}")
+        # Fallback intelligent basé sur les fichiers modifiés
+        lines = status_result.stdout.strip().split('\n')
+        file_types = set()
+        for line in lines:
+            if line.strip():
+                filename = line[3:].strip()  # Enlever le status (M, A, D, etc.)
+                if filename.endswith('.py'):
+                    file_types.add('python')
+                elif filename.endswith(('.js', '.ts', '.jsx', '.tsx')):
+                    file_types.add('javascript')
+                elif filename.endswith(('.html', '.css')):
+                    file_types.add('frontend')
+                elif filename.endswith('.md'):
+                    file_types.add('docs')
+
+        if 'docs' in file_types and len(file_types) == 1:
+            return f"docs: update documentation ({len(lines)} files)"
+        elif 'frontend' in file_types:
+            return f"style: update frontend ({len(lines)} files)"
+        else:
+            return f"chore: update {len(lines)} files"
 
 def generate_readme_content() -> str:
     project_name = os.path.basename(WORKSPACE_DIR)
