@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Skill(mgrep)",
-      "Bash(mgrep:*)"
+      "Bash(mgrep:*)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\elpip\\\\OneDrive\\\\Bureau\\\\Projects\\\\Orbit\" -Force)",
+      "Bash(Select-Object Name, Mode, Length)",
+      "Bash(Format-Table -AutoSize)"
     ]
   }
 }
