@@ -153,7 +153,99 @@ except Exception as e:
     logger.error(f"Erreur Anthropic: {e}")
     client = None
 
-WORKSPACE_DIR = os.getcwd()
+# ═══════════════════════════════════════════════════════════════════════════════
+# ISOLATION DU WORKSPACE - V5 Architecture
+# ═══════════════════════════════════════════════════════════════════════════════
+# ORBIT_ROOT: Dossier où se trouve app.py (IMMUABLE - jamais modifié par l'IA)
+# WORKSPACE_DIR: Dossier cible actuel (change via /projects/select)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+ORBIT_ROOT = os.path.dirname(os.path.abspath(__file__))  # Dossier d'ORBIT (immuable)
+WORKSPACE_DIR = ORBIT_ROOT  # Par défaut, travaille dans ORBIT_ROOT
+
+def get_safe_path(filename: str, base_dir: str = None) -> Optional[str]:
+    """
+    Résout un chemin de manière sécurisée, empêchant le path traversal.
+
+    Args:
+        filename: Chemin relatif ou absolu demandé
+        base_dir: Dossier de base autorisé (défaut: WORKSPACE_DIR)
+
+    Returns:
+        Chemin absolu sécurisé ou None si path traversal détecté
+    """
+    if base_dir is None:
+        base_dir = WORKSPACE_DIR
+
+    # Normaliser le chemin de base
+    base_dir = os.path.normpath(os.path.abspath(base_dir))
+
+    # Construire le chemin demandé
+    if os.path.isabs(filename):
+        requested_path = os.path.normpath(filename)
+    else:
+        requested_path = os.path.normpath(os.path.join(base_dir, filename))
+
+    # Vérification de sécurité: le chemin doit être dans base_dir
+    # Utilise os.path.commonpath pour une comparaison robuste cross-platform
+    try:
+        common = os.path.commonpath([base_dir, requested_path])
+        if common != base_dir:
+            logger.warning(f"[SECURITY] Path traversal blocked: {filename} -> {requested_path}")
+            return None
+    except ValueError:
+        # Sur Windows, si les chemins sont sur des disques différents
+        logger.warning(f"[SECURITY] Cross-drive path blocked: {filename}")
+        return None
+
+    return requested_path
+
+def is_path_in_workspace(path: str) -> bool:
+    """Vérifie si un chemin est dans le WORKSPACE_DIR actuel."""
+    return get_safe_path(path) is not None
+
+def switch_workspace(new_workspace: str) -> Dict:
+    """
+    Change le WORKSPACE_DIR de manière sécurisée.
+
+    Args:
+        new_workspace: Chemin absolu ou relatif vers le nouveau workspace
+
+    Returns:
+        Dict avec success et message
+    """
+    global WORKSPACE_DIR
+
+    # Résoudre le chemin
+    if os.path.isabs(new_workspace):
+        target_path = os.path.normpath(new_workspace)
+    else:
+        # Chemin relatif par rapport à PROJECTS_ROOT
+        target_path = os.path.normpath(os.path.join(Config.PROJECTS_ROOT, new_workspace))
+
+    # Vérifications
+    if not os.path.exists(target_path):
+        return {"success": False, "error": f"Dossier introuvable: {target_path}"}
+
+    if not os.path.isdir(target_path):
+        return {"success": False, "error": f"N'est pas un dossier: {target_path}"}
+
+    # Empêcher de sélectionner ORBIT_ROOT comme workspace si des projets existent
+    # (sécurité pour ne pas modifier les fichiers d'ORBIT)
+    if os.path.normpath(target_path) == os.path.normpath(ORBIT_ROOT):
+        logger.warning("[WORKSPACE] Sélection de ORBIT_ROOT comme workspace - attention aux fichiers système")
+
+    old_workspace = WORKSPACE_DIR
+    WORKSPACE_DIR = target_path
+
+    logger.info(f"[WORKSPACE] Changement: {old_workspace} -> {WORKSPACE_DIR}")
+
+    return {
+        "success": True,
+        "previous": old_workspace,
+        "current": WORKSPACE_DIR,
+        "message": f"Workspace changé vers: {os.path.basename(WORKSPACE_DIR)}"
+    }
 
 CONFIG = {
     "models": {
@@ -818,15 +910,70 @@ Reponds UNIQUEMENT par: CHAT, DEV, README, ou DEBUG_VISUAL""",
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class MemoryManager:
-    """Gere la persistance des conversations et des solutions aux bugs."""
+    """
+    Gère la persistance des conversations et des solutions aux bugs.
+
+    V5: Stockage dynamique par projet
+    - Mémoire stockée dans WORKSPACE_DIR/.orbit_memory.json
+    - Chaque projet a sa propre mémoire isolée
+    - Migration automatique de l'ancien format
+    """
+
+    # Nom du fichier mémoire (caché avec le préfixe .)
+    MEMORY_FILENAME = ".orbit_memory.json"
 
     def __init__(self):
-        self.memory_file = Config.MEMORY_FILE
+        self.current_workspace = None  # Track le workspace actuel
 
-    def _get_path(self) -> str:
-        return os.path.join(WORKSPACE_DIR, self.memory_file)
+    def _get_path(self, workspace: str = None) -> str:
+        """
+        Retourne le chemin du fichier mémoire pour un workspace donné.
 
-    def save(self, orchestrator: 'AgentOrchestrator') -> bool:
+        Args:
+            workspace: Dossier cible (défaut: WORKSPACE_DIR actuel)
+
+        Returns:
+            Chemin absolu vers .orbit_memory.json
+        """
+        target = workspace or WORKSPACE_DIR
+        return os.path.join(target, self.MEMORY_FILENAME)
+
+    def _get_legacy_path(self) -> str:
+        """Retourne le chemin de l'ancien format (pour migration)."""
+        return os.path.join(WORKSPACE_DIR, Config.MEMORY_FILE)
+
+    def _migrate_if_needed(self) -> bool:
+        """
+        Migre l'ancien fichier mémoire vers le nouveau format si nécessaire.
+
+        Returns:
+            True si migration effectuée, False sinon
+        """
+        legacy_path = self._get_legacy_path()
+        new_path = self._get_path()
+
+        # Si l'ancien fichier existe mais pas le nouveau, migrer
+        if os.path.exists(legacy_path) and not os.path.exists(new_path):
+            try:
+                shutil.copy2(legacy_path, new_path)
+                logger.info(f"[MEMORY] Migration: {legacy_path} -> {new_path}")
+                return True
+            except Exception as e:
+                logger.warning(f"[MEMORY] Migration échouée: {e}")
+                return False
+        return False
+
+    def save(self, orchestrator: 'AgentOrchestrator', workspace: str = None) -> bool:
+        """
+        Sauvegarde la mémoire dans le workspace spécifié.
+
+        Args:
+            orchestrator: L'orchestrateur contenant les données à sauvegarder
+            workspace: Dossier cible (défaut: WORKSPACE_DIR)
+
+        Returns:
+            True si succès, False sinon
+        """
         try:
             def make_serializable(obj):
                 if isinstance(obj, (str, int, float, bool, type(None))):
@@ -841,31 +988,58 @@ class MemoryManager:
                     return make_serializable(obj.to_dict())
                 return str(obj)
 
+            target_workspace = workspace or WORKSPACE_DIR
+
             data = {
                 "saved_at": datetime.now().isoformat(),
-                "workspace": WORKSPACE_DIR,
-                "version": "4.0",
+                "workspace": target_workspace,
+                "orbit_root": ORBIT_ROOT,
+                "version": "5.0",  # Version mise à jour
                 "boss": make_serializable(TokenOptimizer.compress_conversation(orchestrator.conversation_boss)),
                 "coder": make_serializable(TokenOptimizer.compress_conversation(orchestrator.conversation_coder)),
                 "reviewer": make_serializable(TokenOptimizer.compress_conversation(orchestrator.conversation_reviewer)),
                 "chat_history": make_serializable(orchestrator.chat_history[-20:]),
                 "files": orchestrator.created_files[-10:],
                 "project_summary": orchestrator.project_summary,
-                "known_bugs_fixes": orchestrator.known_bugs_fixes,  # Self-Healing Memory
+                "known_bugs_fixes": orchestrator.known_bugs_fixes,
+                "error_history": getattr(orchestrator, 'error_history', [])[-20:],  # V5: historique des erreurs
                 "usage": USAGE_STATS
             }
-            with open(self._get_path(), "w", encoding="utf-8") as f:
+
+            memory_path = self._get_path(target_workspace)
+            with open(memory_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+
+            self.current_workspace = target_workspace
+            logger.debug(f"[MEMORY] Sauvegardé: {memory_path}")
             return True
+
         except Exception as e:
-            logger.error(f"Sauvegarde memoire: {e}")
+            logger.error(f"[MEMORY] Sauvegarde échouée: {e}")
             return False
 
-    def load(self, orchestrator: 'AgentOrchestrator') -> bool:
+    def load(self, orchestrator: 'AgentOrchestrator', workspace: str = None) -> bool:
+        """
+        Charge la mémoire depuis le workspace spécifié.
+
+        Args:
+            orchestrator: L'orchestrateur à remplir
+            workspace: Dossier source (défaut: WORKSPACE_DIR)
+
+        Returns:
+            True si succès, False sinon
+        """
         try:
-            path = self._get_path()
+            target_workspace = workspace or WORKSPACE_DIR
+
+            # Tenter migration si nécessaire
+            self._migrate_if_needed()
+
+            path = self._get_path(target_workspace)
             if not os.path.exists(path):
+                logger.debug(f"[MEMORY] Pas de mémoire trouvée: {path}")
                 return False
+
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
@@ -886,6 +1060,7 @@ class MemoryManager:
                                 return False
                 return True
 
+            # Charger les conversations
             boss = data.get("boss", [])
             coder = data.get("coder", [])
             reviewer = data.get("reviewer", [])
@@ -897,24 +1072,54 @@ class MemoryManager:
             if is_valid_conversation(reviewer):
                 orchestrator.conversation_reviewer = reviewer
 
+            # Charger les autres données
             orchestrator.created_files = data.get("files", [])
             orchestrator.chat_history = data.get("chat_history", [])
             orchestrator.project_summary = data.get("project_summary", "")
-            orchestrator.known_bugs_fixes = data.get("known_bugs_fixes", [])  # Load Self-Healing Memory
+            orchestrator.known_bugs_fixes = data.get("known_bugs_fixes", [])
 
-            logger.info(f"Memoire chargee (v{data.get('version', '3.x')}) - {len(orchestrator.known_bugs_fixes)} bugs connus")
+            # V5: Charger l'historique des erreurs
+            orchestrator.error_history = data.get("error_history", [])
+
+            self.current_workspace = target_workspace
+            version = data.get('version', '3.x')
+            bugs_count = len(orchestrator.known_bugs_fixes)
+            errors_count = len(orchestrator.error_history)
+
+            logger.info(f"[MEMORY] Chargée (v{version}) - {bugs_count} bugs, {errors_count} erreurs historiques")
             return True
+
         except Exception as e:
-            logger.warning(f"Memoire non chargee: {e}")
+            logger.warning(f"[MEMORY] Chargement échoué: {e}")
             return False
 
-    def clear(self) -> bool:
+    def clear(self, workspace: str = None) -> bool:
+        """
+        Supprime la mémoire d'un workspace.
+
+        Args:
+            workspace: Dossier cible (défaut: WORKSPACE_DIR)
+
+        Returns:
+            True si succès, False sinon
+        """
         try:
-            path = self._get_path()
+            target_workspace = workspace or WORKSPACE_DIR
+            path = self._get_path(target_workspace)
+
             if os.path.exists(path):
                 os.remove(path)
+                logger.info(f"[MEMORY] Effacée: {path}")
+
+            # Effacer aussi l'ancien format si présent
+            legacy_path = os.path.join(target_workspace, Config.MEMORY_FILE)
+            if os.path.exists(legacy_path) and legacy_path != path:
+                os.remove(legacy_path)
+                logger.info(f"[MEMORY] Ancien format effacé: {legacy_path}")
+
             return True
-        except:
+        except Exception as e:
+            logger.error(f"[MEMORY] Erreur suppression: {e}")
             return False
 
     def add_bug_fix(self, orchestrator: 'AgentOrchestrator', symptom: str, solution: str) -> bool:
@@ -1116,48 +1321,151 @@ TOOLS = [
 ]
 
 def execute_tool(name: str, args: dict, orchestrator: 'AgentOrchestrator' = None) -> dict:
-    """Execute un outil avec resultats compresses."""
+    """
+    Execute un outil avec sécurisation des chemins et capture d'erreurs améliorée.
+
+    V5: Path traversal protection + Enhanced error capture
+    """
     global WORKSPACE_DIR
 
     try:
+        # ═══════════════════════════════════════════════════════════════════════════
+        # READ_FILE - Avec protection path traversal
+        # ═══════════════════════════════════════════════════════════════════════════
         if name == "read_file":
-            path = os.path.join(WORKSPACE_DIR, args["filename"])
-            if not os.path.exists(path):
-                return {"success": False, "error": f"Fichier non trouve: {args['filename']}"}
-            with open(path, "r", encoding="utf-8") as f:
+            safe_path = get_safe_path(args["filename"])
+            if safe_path is None:
+                return {
+                    "success": False,
+                    "error": f"[SECURITY] Accès refusé: chemin hors workspace ({args['filename']})"
+                }
+
+            if not os.path.exists(safe_path):
+                return {"success": False, "error": f"Fichier non trouvé: {args['filename']}"}
+
+            if not os.path.isfile(safe_path):
+                return {"success": False, "error": f"N'est pas un fichier: {args['filename']}"}
+
+            with open(safe_path, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
             return {"success": True, "content": content[:3000], "size": len(content)}
 
+        # ═══════════════════════════════════════════════════════════════════════════
+        # WRITE_FILE - Avec protection path traversal stricte
+        # ═══════════════════════════════════════════════════════════════════════════
         elif name == "write_file":
-            path = os.path.join(WORKSPACE_DIR, args["filename"])
-            parent = os.path.dirname(path)
-            if parent:
+            safe_path = get_safe_path(args["filename"])
+            if safe_path is None:
+                return {
+                    "success": False,
+                    "error": f"[SECURITY] Écriture refusée: chemin hors workspace ({args['filename']})"
+                }
+
+            # Protection supplémentaire: interdire d'écrire dans ORBIT_ROOT si différent de WORKSPACE
+            if WORKSPACE_DIR != ORBIT_ROOT:
+                orbit_check = get_safe_path(args["filename"], ORBIT_ROOT)
+                if orbit_check and os.path.normpath(safe_path).startswith(os.path.normpath(ORBIT_ROOT)):
+                    # Le fichier serait dans ORBIT_ROOT, vérifier si c'est un fichier système
+                    protected_files = ['app.py', 'requirements.txt', 'check_models.py', '.env', 'install.bat', 'start.bat']
+                    filename = os.path.basename(args["filename"])
+                    if filename in protected_files:
+                        return {
+                            "success": False,
+                            "error": f"[SECURITY] Fichier système protégé: {filename}"
+                        }
+
+            parent = os.path.dirname(safe_path)
+            if parent and not os.path.exists(parent):
                 os.makedirs(parent, exist_ok=True)
-            with open(path, "w", encoding="utf-8") as f:
+
+            with open(safe_path, "w", encoding="utf-8") as f:
                 f.write(args["content"])
+
+            logger.debug(f"[TOOL] write_file: {args['filename']} ({len(args['content'])} chars)")
             return {"success": True, "msg": f"OK {args['filename']}"}
 
+        # ═══════════════════════════════════════════════════════════════════════════
+        # RUN_COMMAND - Avec capture d'erreur enrichie pour la boucle de débogage
+        # ═══════════════════════════════════════════════════════════════════════════
         elif name == "run_command":
             is_safe, reason = is_command_safe(args["command"])
             if not is_safe:
-                return {"success": False, "error": reason}
+                return {"success": False, "error": reason, "error_type": "BLOCKED"}
 
             result = subprocess.run(
                 ["powershell", "-Command", args["command"]],
                 capture_output=True, text=True, cwd=WORKSPACE_DIR,
                 timeout=Config.COMMAND_TIMEOUT
             )
-            stdout = result.stdout.strip()[:500] if result.stdout else ""
-            stderr = result.stderr.strip()[:200] if result.stderr else ""
-            return {"success": result.returncode == 0, "out": stdout, "err": stderr}
 
+            stdout = result.stdout.strip() if result.stdout else ""
+            stderr = result.stderr.strip() if result.stderr else ""
+
+            # Détection d'erreurs même si returncode == 0 (certaines erreurs ne font pas planter)
+            error_patterns = [
+                "error", "Error", "ERROR",
+                "exception", "Exception", "EXCEPTION",
+                "failed", "Failed", "FAILED",
+                "undefined", "null is not", "NaN",
+                "Cannot ", "cannot ", "can't ",
+                "Module not found", "ModuleNotFoundError",
+                "SyntaxError", "TypeError", "ReferenceError", "ImportError",
+                "ENOENT", "EACCES", "EPERM",
+                "Traceback", "at line", "File \"",
+            ]
+
+            has_error_pattern = any(pattern in stdout or pattern in stderr for pattern in error_patterns)
+            is_success = result.returncode == 0 and not has_error_pattern
+
+            # Construire une réponse enrichie pour le débogage
+            response = {
+                "success": is_success,
+                "returncode": result.returncode,
+                "out": stdout[:800],  # Plus de contexte pour le débogage
+                "err": stderr[:400],
+            }
+
+            # Si erreur détectée, ajouter des métadonnées pour la boucle de débogage
+            if not is_success:
+                response["error_type"] = "COMMAND_FAILED"
+                response["error_summary"] = stderr[:100] if stderr else stdout[:100]
+
+                # Extraire le type d'erreur si possible
+                for pattern in ["SyntaxError", "TypeError", "ReferenceError", "ImportError",
+                               "ModuleNotFoundError", "FileNotFoundError", "PermissionError"]:
+                    if pattern in stdout or pattern in stderr:
+                        response["error_type"] = pattern
+                        break
+
+                logger.warning(f"[TOOL] run_command error: {response['error_type']} - {response['error_summary'][:50]}")
+
+            return response
+
+        # ═══════════════════════════════════════════════════════════════════════════
+        # LIST_FILES - Avec protection path traversal
+        # ═══════════════════════════════════════════════════════════════════════════
         elif name == "list_files":
-            path = os.path.join(WORKSPACE_DIR, args.get("directory", "."))
-            if not os.path.exists(path):
-                return {"success": False, "error": "Dossier non trouve"}
-            items = TokenOptimizer.get_compact_file_list(path)
+            directory = args.get("directory", ".")
+            safe_path = get_safe_path(directory)
+
+            if safe_path is None:
+                return {
+                    "success": False,
+                    "error": f"[SECURITY] Accès refusé: chemin hors workspace ({directory})"
+                }
+
+            if not os.path.exists(safe_path):
+                return {"success": False, "error": "Dossier non trouvé"}
+
+            if not os.path.isdir(safe_path):
+                return {"success": False, "error": "N'est pas un dossier"}
+
+            items = TokenOptimizer.get_compact_file_list(safe_path)
             return {"success": True, "files": items}
 
+        # ═══════════════════════════════════════════════════════════════════════════
+        # GIT_COMMIT - Opère dans WORKSPACE_DIR
+        # ═══════════════════════════════════════════════════════════════════════════
         elif name == "git_commit":
             if not SystemHealth.git_available:
                 return {"success": False, "error": "Git non disponible"}
@@ -1350,11 +1658,19 @@ FORMAT:
 [VERIFICATION] Nouveau screenshot"""
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# ORCHESTRATEUR AUTONOME (The Loop) - V4 avec Vision
+# ORCHESTRATEUR AUTONOME (The Loop) - V5 avec Débogage Intelligent
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class AgentOrchestrator:
-    """Orchestrateur avec boucle d'autonomie (max 5 iterations) et Vision."""
+    """
+    Orchestrateur V5 avec:
+    - Boucle d'autonomie (max 5 itérations)
+    - Vision AI
+    - Débogage intelligent (error_history + détection de boucles)
+    """
+
+    # Nombre max d'erreurs identiques avant arrêt d'urgence
+    MAX_SAME_ERROR_COUNT = 3
 
     def __init__(self):
         self.conversation_boss: List[Dict] = []
@@ -1366,10 +1682,16 @@ class AgentOrchestrator:
         self.project_summary: str = ""
         self.loop_count: int = 0
         self.last_error: str = ""
-        self.known_bugs_fixes: List[Dict] = []  # Memoire Self-Healing
-        self.last_screenshot: Optional[Dict] = None  # Dernier screenshot pris
+        self.known_bugs_fixes: List[Dict] = []  # Mémoire Self-Healing
+
+        # V5: Système de débogage intelligent
+        self.error_history: List[Dict] = []  # Historique des erreurs de la session
+        self.last_screenshot: Optional[Dict] = None
+        self.consecutive_same_errors: int = 0  # Compteur d'erreurs identiques
+        self.last_error_signature: str = ""  # Signature de la dernière erreur
 
     def reset(self) -> None:
+        """Réinitialise l'orchestrateur pour une nouvelle tâche."""
         self.conversation_boss = []
         self.conversation_coder = []
         self.conversation_reviewer = []
@@ -1378,8 +1700,131 @@ class AgentOrchestrator:
         self.project_summary = ""
         self.loop_count = 0
         self.last_error = ""
-        # Ne pas reset known_bugs_fixes pour garder la memoire
+        # Ne pas reset known_bugs_fixes pour garder la mémoire
+
+        # V5: Reset du système de débogage (mais garder error_history pour analyse)
+        self.consecutive_same_errors = 0
+        self.last_error_signature = ""
         self.last_screenshot = None
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # V5: SYSTÈME DE DÉBOGAGE INTELLIGENT
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def _get_error_signature(self, error: str) -> str:
+        """
+        Génère une signature unique pour une erreur (pour détecter les répétitions).
+
+        La signature est basée sur le type d'erreur et les mots-clés principaux,
+        ignorant les détails variables comme les numéros de ligne.
+        """
+        # Extraire le type d'erreur si présent
+        error_types = [
+            "SyntaxError", "TypeError", "ReferenceError", "ImportError",
+            "ModuleNotFoundError", "FileNotFoundError", "PermissionError",
+            "ConnectionError", "TimeoutError", "ValueError", "KeyError"
+        ]
+
+        error_type = "UNKNOWN"
+        for et in error_types:
+            if et in error:
+                error_type = et
+                break
+
+        # Extraire les mots-clés significatifs (ignorer chiffres et chemins)
+        words = re.findall(r'[a-zA-Z_][a-zA-Z0-9_]*', error)
+        significant_words = [w for w in words if len(w) > 3 and w not in ['line', 'file', 'Error', 'error']][:5]
+
+        return f"{error_type}:{':'.join(sorted(significant_words))}"
+
+    def track_error(self, error: str, context: str = "", tool: str = "") -> Dict:
+        """
+        Enregistre une erreur et détecte les répétitions.
+
+        Args:
+            error: Message d'erreur
+            context: Contexte de l'erreur (commande, fichier, etc.)
+            tool: Outil qui a généré l'erreur
+
+        Returns:
+            Dict avec:
+            - is_repeated: True si c'est une erreur répétée
+            - count: Nombre de fois que cette erreur est survenue
+            - should_escalate: True si on doit demander l'aide de l'utilisateur
+        """
+        signature = self._get_error_signature(error)
+
+        # Vérifier si c'est la même erreur que la précédente
+        if signature == self.last_error_signature:
+            self.consecutive_same_errors += 1
+        else:
+            self.consecutive_same_errors = 1
+            self.last_error_signature = signature
+
+        # Enregistrer dans l'historique
+        error_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "error": error[:500],
+            "signature": signature,
+            "context": context[:200],
+            "tool": tool,
+            "loop": self.loop_count,
+            "consecutive_count": self.consecutive_same_errors
+        }
+        self.error_history.append(error_entry)
+
+        # Garder seulement les 50 dernières erreurs
+        self.error_history = self.error_history[-50:]
+
+        # Mettre à jour last_error
+        self.last_error = error[:200]
+
+        should_escalate = self.consecutive_same_errors >= self.MAX_SAME_ERROR_COUNT
+
+        if should_escalate:
+            logger.warning(f"[DEBUG] Erreur répétée {self.consecutive_same_errors}x - ESCALADE requise")
+
+        return {
+            "is_repeated": self.consecutive_same_errors > 1,
+            "count": self.consecutive_same_errors,
+            "should_escalate": should_escalate,
+            "signature": signature
+        }
+
+    def get_error_context_for_boss(self) -> str:
+        """
+        Génère un résumé de l'historique des erreurs pour aider le Boss à analyser.
+
+        Returns:
+            String formaté avec l'historique des erreurs récentes
+        """
+        if not self.error_history:
+            return ""
+
+        recent_errors = self.error_history[-5:]
+
+        lines = ["\n═══════════════════════════════════════════════════════════════"]
+        lines.append("⚠️  HISTORIQUE DES ERREURS (session actuelle)")
+        lines.append("═══════════════════════════════════════════════════════════════")
+
+        for i, err in enumerate(recent_errors, 1):
+            lines.append(f"\n[Erreur {i}] Loop {err.get('loop', '?')} - {err.get('tool', 'unknown')}")
+            lines.append(f"  Type: {err.get('signature', 'UNKNOWN')}")
+            lines.append(f"  Message: {err.get('error', '')[:100]}...")
+            if err.get('consecutive_count', 1) > 1:
+                lines.append(f"  ⚠️  Répétée {err['consecutive_count']}x consécutivement!")
+
+        if self.consecutive_same_errors >= 2:
+            lines.append(f"\n🔴 ATTENTION: La même erreur s'est produite {self.consecutive_same_errors}x!")
+            lines.append("   → Propose une solution DIFFÉRENTE des tentatives précédentes.")
+
+        lines.append("═══════════════════════════════════════════════════════════════\n")
+
+        return "\n".join(lines)
+
+    def should_request_user_help(self) -> bool:
+        """Vérifie si on doit demander l'aide de l'utilisateur."""
+        return self.consecutive_same_errors >= self.MAX_SAME_ERROR_COUNT
 
     def track_usage(self, response, agent: str) -> None:
         if hasattr(response, 'usage'):
@@ -2047,12 +2492,20 @@ Le contexte code est deja charge - concentre-toi sur l'analyse visuelle."""
     # ───────────────────────────────────────────────────────────────────────
 
     def orchestrate_dev(self, user_message: str) -> Generator:
-        """Boucle d'autonomie V5: SMART_CONTEXT -> PLAN -> ACTION -> VERIFY (max 5 iterations)."""
+        """
+        Boucle d'autonomie V5: SMART_CONTEXT -> PLAN -> ACTION -> VERIFY
+        Avec débogage intelligent et détection de boucles d'erreurs.
+        """
         logger.info(f"[DEV] {user_message[:40]}...")
 
         self.loop_count = 0
         self.last_error = ""
         max_loops = Config.MAX_AUTONOMY_LOOPS
+
+        # V5: Reset du tracking d'erreurs pour cette session
+        self.consecutive_same_errors = 0
+        self.last_error_signature = ""
+        session_errors: List[Dict] = []  # Erreurs de cette session uniquement
 
         # ═══════════════════════════════════════════════════════════════════════
         # PHASE 0: SMART CONTEXT INJECTION (V5)
@@ -2068,7 +2521,7 @@ Le contexte code est deja charge - concentre-toi sur l'analyse visuelle."""
                    "files": smart_ctx["files_loaded"],
                    "chars": smart_ctx["total_chars"]}
 
-        # Consulter la memoire des bugs
+        # Consulter la mémoire des bugs
         bug_context = ""
         if self.known_bugs_fixes:
             similar = memory_manager.find_similar_bug(self, user_message)
@@ -2081,6 +2534,23 @@ Le contexte code est deja charge - concentre-toi sur l'analyse visuelle."""
             logger.info(f"=== BOUCLE AUTONOMIE {self.loop_count}/{max_loops} ===")
 
             yield {"type": "loop_start", "iteration": self.loop_count, "max": max_loops}
+
+            # ─────────────────────────────────────────────────────────────
+            # V5: VÉRIFICATION ESCALADE AVANT DE CONTINUER
+            # ─────────────────────────────────────────────────────────────
+            if self.should_request_user_help():
+                yield {
+                    "type": "escalation_required",
+                    "reason": f"Même erreur répétée {self.consecutive_same_errors}x",
+                    "error_signature": self.last_error_signature,
+                    "error_history": session_errors[-3:]
+                }
+                yield {"type": "agent_text", "agent": "system",
+                       "content": f"\n🚨 ARRÊT D'URGENCE: L'erreur '{self.last_error_signature}' s'est répétée {self.consecutive_same_errors} fois.\n"
+                                  f"L'IA tourne en rond. Intervention humaine requise.\n"
+                                  f"Dernière erreur: {self.last_error[:200]}"}
+                yield {"type": "loop_end", "iteration": self.loop_count, "status": "ESCALATED"}
+                break
 
             # ─────────────────────────────────────────────────────────────
             # PHASE 1: PLAN (BOSS) - Avec Smart Context au Tour 1
@@ -2100,12 +2570,25 @@ INSTRUCTIONS POUR LE BOSS:
 2. Analyse-le pour creer un plan PRECIS
 3. Le CODER recevra aussi ce contexte, il pourra agir des le Tour 1
 4. Sois specifique: indique les fichiers a modifier et les changements exacts"""
-            elif self.last_error:
-                boss_message = f"""CORRECTION REQUISE (iteration {self.loop_count}):
-Erreur precedente: {self.last_error}
-Demande originale: {user_message}
 
-Analyse l'erreur et propose une solution alternative."""
+            elif self.last_error:
+                # V5: Message enrichi avec historique des erreurs
+                error_history_context = self.get_error_context_for_boss()
+
+                boss_message = f"""🔴 CORRECTION REQUISE (iteration {self.loop_count}/{max_loops})
+
+DEMANDE ORIGINALE:
+{user_message}
+
+DERNIÈRE ERREUR:
+{self.last_error}
+{error_history_context}
+
+INSTRUCTIONS CRITIQUES:
+1. Analyse la CAUSE RACINE de l'erreur (pas juste le symptôme)
+2. Si l'erreur s'est répétée, propose une approche COMPLÈTEMENT DIFFÉRENTE
+3. Vérifie les dépendances, imports, et chemins de fichiers
+4. Ne refais PAS la même action qui a échoué"""
             else:
                 boss_message = f"Continue la tache: {user_message}"
 
@@ -2148,8 +2631,36 @@ ACTION IMMEDIATE REQUISE:
             coder_had_error = False
             for event in self.run_agent_loop("coder", coder_message, CODER_PROMPT, self.conversation_coder, max_turns=6):
                 yield event
-                if event.get("type") == "tool_result" and not event.get("success", True):
-                    coder_had_error = True
+
+                # V5: Capture améliorée des erreurs
+                if event.get("type") == "tool_result":
+                    if not event.get("success", True):
+                        coder_had_error = True
+                        error_msg = event.get("result", {}).get("error", "") or event.get("result", {}).get("err", "")
+                        error_type = event.get("result", {}).get("error_type", "UNKNOWN")
+                        tool_name = event.get("tool", "unknown")
+
+                        # Tracker l'erreur
+                        error_info = self.track_error(
+                            error=error_msg,
+                            context=f"Tool: {tool_name}",
+                            tool=tool_name
+                        )
+                        session_errors.append({
+                            "loop": self.loop_count,
+                            "tool": tool_name,
+                            "error": error_msg[:200],
+                            "type": error_type
+                        })
+
+                        # Notifier le frontend de l'erreur trackée
+                        yield {
+                            "type": "error_tracked",
+                            "error_type": error_type,
+                            "is_repeated": error_info["is_repeated"],
+                            "count": error_info["count"],
+                            "should_escalate": error_info["should_escalate"]
+                        }
 
             # ─────────────────────────────────────────────────────────────
             # PHASE 3: VERIFY (REVIEWER)
@@ -2785,34 +3296,81 @@ def create_project():
 
 @app.route('/projects/select', methods=['POST'])
 def select_project():
+    """
+    Sélectionne un projet comme workspace actif.
+
+    V5: Supporte les chemins absolus et relatifs.
+    - name: Nom du projet (relatif à PROJECTS_ROOT)
+    - path: Chemin absolu vers le projet (optionnel, prioritaire)
+
+    Exemple:
+        {"name": "MonProjet"}  # -> PROJECTS_ROOT/MonProjet
+        {"path": "C:/Users/Dev/Projects/MonProjet"}  # Chemin absolu
+    """
     global WORKSPACE_DIR
+
     data = request.json or {}
     name = data.get('name', '')
+    absolute_path = data.get('path', '')
 
-    project_path = os.path.join(Config.PROJECTS_ROOT, name)
+    # Déterminer le chemin du projet
+    if absolute_path:
+        # Chemin absolu fourni directement
+        project_path = os.path.normpath(absolute_path)
+    elif name:
+        # Vérifier si c'est un chemin absolu déguisé en nom
+        if os.path.isabs(name) or (len(name) > 2 and name[1] == ':'):
+            project_path = os.path.normpath(name)
+        else:
+            # Chemin relatif à PROJECTS_ROOT
+            project_path = os.path.join(Config.PROJECTS_ROOT, name)
+    else:
+        return jsonify({"success": False, "error": "Nom ou chemin de projet requis"})
 
-    if not os.path.exists(project_path):
-        return jsonify({"success": False, "error": f"'{name}' introuvable"})
+    # Utiliser la fonction switch_workspace pour le changement sécurisé
+    switch_result = switch_workspace(project_path)
 
-    WORKSPACE_DIR = project_path
+    if not switch_result["success"]:
+        return jsonify(switch_result)
+
+    # Reset de l'orchestrateur pour le nouveau projet
     orchestrator.reset()
 
-    memory_loaded = memory_manager.load(orchestrator)
+    # Charger la mémoire spécifique au projet (V5: .orbit_memory.json)
+    memory_loaded = memory_manager.load(orchestrator, project_path)
 
+    # Scanner le projet si pas de mémoire
     if not memory_loaded or len(orchestrator.conversation_boss) == 0:
         structure = SmartSearch.get_file_structure(project_path)
         if structure.get("success"):
             s = structure["structure"]
             context_message = f"[CONTEXTE PROJET]\nFichiers: {', '.join(s.get('files', []))}\nDossiers: {', '.join(s.get('dirs', []))}\nTech: {', '.join(s.get('tech', []))}"
             orchestrator.conversation_boss = [{"role": "user", "content": context_message}]
-            logger.info(f"Contexte projet scanne")
+            logger.info(f"[PROJECT] Contexte scanné pour: {os.path.basename(project_path)}")
 
-    logger.info(f"Projet selectionne: {name}")
-    return jsonify({"success": True, "message": f"'{name}' selectionne", "path": project_path, "context_loaded": True})
+    project_name = os.path.basename(project_path)
+    logger.info(f"[PROJECT] Sélectionné: {project_name} -> {project_path}")
+
+    return jsonify({
+        "success": True,
+        "message": f"Projet '{project_name}' sélectionné",
+        "name": project_name,
+        "path": project_path,
+        "orbit_root": ORBIT_ROOT,
+        "memory_loaded": memory_loaded,
+        "is_orbit_root": os.path.normpath(project_path) == os.path.normpath(ORBIT_ROOT)
+    })
 
 @app.route('/projects/current')
 def current_project():
-    return jsonify({"name": os.path.basename(WORKSPACE_DIR), "path": WORKSPACE_DIR})
+    """Retourne les informations sur le workspace actuel."""
+    return jsonify({
+        "name": os.path.basename(WORKSPACE_DIR),
+        "path": WORKSPACE_DIR,
+        "orbit_root": ORBIT_ROOT,
+        "is_orbit_root": os.path.normpath(WORKSPACE_DIR) == os.path.normpath(ORBIT_ROOT),
+        "memory_file": memory_manager._get_path(WORKSPACE_DIR)
+    })
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ROUTES MEMOIRE SELF-HEALING
