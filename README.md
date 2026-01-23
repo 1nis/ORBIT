@@ -2,70 +2,87 @@
 
 ## Description
 
-**Orbit** est un assistant de développement intelligent alimenté par l'API Claude d'Anthropic. Il combine classification d'intentions, boucle d'autonomie, vision par ordinateur (screenshots + analyse), et accès contrôlé à Internet pour automatiser le développement de projets full-stack.
-
-Conçu comme une **State Machine** avec gestion multi-agents (Boss, Coder, Reviewer), Orbit peut générer du code, débugger visuellement, créer de la documentation, et apprendre de ses erreurs via un système de mémoire self-healing.
+Orbit est un assistant IA autonome pour le développement de projets web. Il intègre une architecture à machine d'états avec classification d'intentions (CHAT/DEV/README/DEBUG_VISUAL), une boucle d'autonomie pour l'auto-correction, la vision par ordinateur via Playwright, et un accès Internet contrôlé. L'application permet de générer du code, déboguer visuellement des interfaces, créer de la documentation et gérer des projets de manière automatisée.
 
 ## Technologies
 
-- **Backend**: Python 3.x (Flask)
-- **Frontend**: HTML5, CSS3, JavaScript
-- **API**: Anthropic Claude (Sonnet 4.5, Opus 4)
-- **Vision**: Playwright (screenshots headless)
-- **Recherche**: DuckDuckGo Search
-- **Outils**: Git, GitHub CLI, Node.js
+- **Backend**: Python (Flask), Node.js (Express)
+- **IA**: Anthropic Claude (Sonnet 4.5, Opus 4)
+- **Vision**: Playwright (screenshots), Claude Vision API
+- **Web**: HTML, CSS, JavaScript
+- **Outils**: Git, GitHub CLI, DuckDuckGo Search
+- **Autres**: Multer, CSV-Parser, PDF-Parse, python-dotenv, colorama
 
 ## Installation
 
 ### Prérequis
 
 - Python 3.8+
-- Node.js 16+ (pour projets générés)
+- Node.js 16+
 - Git
-- Clé API Anthropic (Claude)
+- GitHub CLI (optionnel)
 
-### Étapes
+### Backend Python (Orbit Core)
 
 ```bash
-# Cloner le dépôt
-git clone https://github.com/votre-repo/orbit.git
+# Cloner le projet
+git clone <url-du-repo>
 cd orbit
 
 # Installer les dépendances Python
 pip install -r requirements.txt
 
-# Installer Playwright (pour la vision)
+# Installer Playwright
 playwright install chromium
 
 # Configurer les variables d'environnement
 cp .env.example .env
 # Éditer .env et ajouter votre ANTHROPIC_API_KEY
+```
 
-# Installer les dépendances Node.js (si nécessaire)
+### Backend Node.js (Subscription Manager)
+
+```bash
+# Installer les dépendances Node.js
 npm install
 ```
 
-### Configuration `.env`
+### Configuration
+
+Créer un fichier `.env` à la racine avec :
 
 ```env
-ANTHROPIC_API_KEY=votre_cle_api_ici
+ANTHROPIC_API_KEY=your_api_key_here
 ORBIT_MODEL=claude-sonnet-4-5-20250929
 ORBIT_OPUS_MODEL=claude-opus-4-20250514
 PROJECTS_ROOT=~/Orbit_Projects
 ORBIT_MAX_TOKENS=4096
+ORBIT_COMMAND_TIMEOUT=60
+ORBIT_AUTO_GITHUB=true
 ORBIT_MAX_LOOPS=5
 ```
 
 ## Usage
 
-### Lancer l'application
+### Lancer Orbit (Assistant IA)
 
 ```bash
-# Démarrer le serveur Flask
 python app.py
-
-# Ouvrir le navigateur sur http://localhost:5000
 ```
+
+L'interface web sera disponible sur `http://localhost:5000`
+
+### Lancer le Subscription Manager
+
+```bash
+# Mode production
+npm start
+
+# Mode développement (avec auto-reload)
+npm run dev
+```
+
+L'API sera disponible sur `http://localhost:3000`
 
 ### Vérifier les modèles disponibles
 
@@ -73,71 +90,82 @@ python app.py
 python check_models.py
 ```
 
-### Commandes principales
+## Fonctionnalités principales
 
-- **Chat**: Conversation naturelle avec l'IA
-- **Dev**: Génération de code autonome avec The Loop
-- **README**: Création automatique de documentation
-- **Debug Visual**: Screenshots + analyse d'interface avec Vision AI
+### Orbit Core
 
-### Exemple de projet Node.js
+- **Classification d'intentions** : CHAT, DEV, README, DEBUG_VISUAL
+- **Boucle d'autonomie** : Auto-correction jusqu'à 5 itérations
+- **Vision par ordinateur** : Screenshots automatiques et analyse visuelle
+- **Accès Internet** : Recherche web (DuckDuckGo) et lecture de pages
+- **Mémoire Self-Healing** : Sauvegarde des solutions de bugs
+- **Smart Search** : Recherche optimisée dans le code
+- **Serveurs en arrière-plan** : Live preview pour Node.js/Python
+- **Gestion Git** : Commits automatiques et intégration GitHub
 
-```bash
-# Les projets générés incluent leur propre setup
-cd ~/Orbit_Projects/mon-projet
+### Subscription Manager
 
-# Installer les dépendances
-npm install
-
-# Lancer le serveur
-npm start
-```
+- Upload et analyse de fichiers bancaires (CSV, PDF)
+- Détection automatique des abonnements
+- API REST pour la gestion des données
 
 ## Structure du projet
 
 ```
 orbit/
-├── app.py                  # Serveur Flask principal (State Machine + Agents)
-├── requirements.txt        # Dépendances Python
-├── package.json            # Dépendances Node.js (si applicable)
-├── check_models.py         # Utilitaire vérification API
-├── templates/
-│   └── index.html          # Interface web
-├── static/                 # Assets statiques
-├── screenshots/            # Captures d'écran (Vision AI)
-├── orbit_memory.json       # Mémoire self-healing
-└── README.md               # Ce fichier
+├── app.py                      # Application Flask principale (Orbit Core)
+├── requirements.txt            # Dépendances Python
+├── package.json                # Configuration Node.js
+├── .env                        # Variables d'environnement (à créer)
+├── check_models.py             # Utilitaire de vérification des modèles Claude
+├── index.html                  # Interface web (Snake Game - exemple)
+├── screenshots/                # Dossier des captures d'écran
+├── orbit_memory.json           # Mémoire persistante de l'IA
+├── backend/
+│   └── server.js               # Serveur Node.js (Subscription Manager)
+└── templates/                  # Templates Flask (si utilisés)
 ```
 
-## Fonctionnalités avancées
+## API Tools disponibles
 
-### Intent Classification
-Détecte automatiquement le type de requête (CHAT/DEV/README/DEBUG_VISUAL) pour choisir la meilleure stratégie.
+- `read_file` : Lecture de fichiers
+- `write_file` : Création/modification de fichiers
+- `run_command` : Exécution PowerShell (timeout 60s)
+- `list_files` : Liste des fichiers d'un dossier
+- `git_commit` : Commit Git automatique
+- `smart_search` : Recherche intelligente dans le code
+- `find_function` : Localisation de fonctions/classes
+- `start_server` / `stop_server` : Gestion de serveurs en arrière-plan
+- `take_screenshot` : Capture d'écran avec Playwright
+- `analyze_screenshot` : Analyse visuelle avec Claude Vision
+- `web_search` : Recherche DuckDuckGo
+- `read_webpage` : Lecture de contenu web
+- `save_bug_fix` : Sauvegarde de solutions dans la mémoire
 
-### The Loop (Boucle d'Autonomie)
-Jusqu'à 5 itérations autonomes pour résoudre des tâches complexes sans intervention humaine.
+## Configuration avancée
 
-### Vision AI
-- Screenshots via Playwright
-- Analyse avec Claude Vision API
-- Détection de bugs visuels
+### Limites de sécurité
 
-### Internet Toggle
-Recherche web (DuckDuckGo) et lecture de pages activable/désactivable.
+Les commandes dangereuses sont automatiquement bloquées :
+- `rm -rf /`, `format c:`, `shutdown`, etc.
+- Injection de code via `iex()`, `invoke-expression`
 
-### Self-Healing Memory
-Sauvegarde les solutions de bugs pour référence future et apprentissage continu.
+### Modèles IA
 
-## Réalisation
+Par défaut, Orbit utilise :
+- **Sonnet 4.5** pour la classification et le développement
+- **Opus 4** pour les tâches complexes (optionnel)
 
-**Développé par Anis Kherraf avec l'assistance de Claude Code (Anthropic)**
+Modifiez `ORBIT_MODEL` et `ORBIT_OPUS_MODEL` dans `.env` pour changer.
 
-Ce projet démontre l'intégration avancée d'IA générative dans un workflow de développement moderne, combinant autonomie, vision par ordinateur, et orchestration multi-agents.
+### Toggle Internet
+
+L'accès Internet est désactivé par défaut. Pour l'activer, modifiez `internet_enabled` dans le fichier de configuration de l'application web.
 
 ## Licence
 
 MIT
 
----
+## Support
 
-**Made with ❤️ by ANTIGRAVITY STUDIO**
+Pour toute question ou problème, consultez les logs de l'application ou vérifiez la configuration de votre clé API Anthropic.
